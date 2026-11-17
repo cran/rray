@@ -1,478 +1,166 @@
-context("test-greater")
+test_that("compares elementwise", {
+  x <- array(1:6, c(3L, 2L))
+  y <- array(6:1, c(3L, 2L))
 
-test_that("greater with rrays", {
-  expect_is(rray_greater(rray(1), 1), "vctrs_rray_lgl")
-  expect_is(rray_greater(1, rray(1)), "vctrs_rray_lgl")
-  expect_equal(rray(1) > 1, rray(FALSE))
+  expect_identical(rray_greater_than(x, y), x > y)
+  expect_identical(rray_greater_than_or_equal(x, y), x >= y)
+  expect_identical(rray_less_than(x, y), x < y)
+  expect_identical(rray_less_than_or_equal(x, y), x <= y)
 })
 
-test_that("greater with base R", {
-  expect_equal(rray_greater(1, 2), new_array(FALSE))
+test_that("broadcasts both inputs to common dimensions", {
+  x <- array(1:3, c(3L, 1L))
+  y <- array(c(2L, 4L), c(1L, 2L))
 
-  expect_equal(
-    rray_greater(matrix(1:5), matrix(6:10)),
-    new_matrix(FALSE, c(5, 1))
+  expected_x <- x[, rep(1L, 2L), drop = FALSE]
+  expected_y <- y[rep(1L, 3L), , drop = FALSE]
+
+  expect_identical(rray_greater_than(x, y), expected_x > expected_y)
+  expect_identical(
+    rray_greater_than_or_equal(x, y),
+    expected_x >= expected_y
+  )
+  expect_identical(rray_less_than(x, y), expected_x < expected_y)
+  expect_identical(
+    rray_less_than_or_equal(x, y),
+    expected_x <= expected_y
   )
 })
 
-test_that("ensure greater requiring a reshape view is correct", {
-  x <- array(1:8, c(2, 2, 2))
-  expect_equal(
-    rray_greater(x, matrix(1:2)),
-    new_array(c(rep(FALSE, 2), rep(TRUE, 6)), dim = c(2, 2, 2))
+test_that("works with 1D and 3D arrays", {
+  expect_identical(
+    rray_greater_than(1:3, 2L),
+    array(c(FALSE, FALSE, TRUE), 3L)
   )
+
+  x <- array(1:24, c(2L, 3L, 4L))
+  y <- array(c(1L, 2L), c(2L, 1L, 1L))
+  expected_y <- y[, rep(1L, 3L), rep(1L, 4L), drop = FALSE]
+
+  expect_identical(rray_less_than_or_equal(x, y), x <= expected_y)
 })
 
-test_that("expect that we can't compare with classed base r", {
-  expect_warning(factor("x") > rray(1), "Incompatible methods")
+test_that("returns logical output for every supported type pair", {
+  expect_snapshot(native_ptype_matrix(rray_greater_than, c("x", "y")))
 })
 
-test_that("incompatible types are caught", {
-  expect_error(rray_greater(rray(1), "hi"), class = "vctrs_error_incompatible_type")
-})
-
-test_that("comparison with NULL return empty common dimension", {
-  expect_equal(rray_greater(1, NULL), new_array(logical()))
-  expect_equal(rray_greater(matrix(1), NULL), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_greater(array(1, c(1, 2, 2)), NULL), new_array(logical(), c(0, 2, 2)))
-})
-
-test_that("0-length dimension behavior", {
-  expect_equal(rray_greater(1, logical()), new_array(logical()))
-  expect_equal(rray_greater(matrix(1), logical()), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_greater(array(1, c(1, 2, 2)), logical()), new_array(logical(), c(0, 2, 2)))
-
-  expect_equal(rray_greater(rep(1, 5), matrix(logical(), 1, 0)), new_array(logical(), c(5, 0)))
-})
-
-test_that("common dim of 0 and non-zero/non-one is an error", {
-  expect_error(rray_greater(c(1, 1), logical()), "\\(2\\) and \\(0\\)")
-})
-
-test_that("dimension names are kept", {
-  x <- rray(c(TRUE, FALSE), c(1, 2), dim_names = list(c("r1"), c("c1", "c2")))
-
-  expect_equal(rray_dim_names(rray_greater(x, 2)), rray_dim_names(x))
-  expect_equal(rray_dim_names(rray_greater(matrix(1, 1, 2), x)), rray_dim_names(x))
-
-  expect_equal(
-    rray_dim_names(rray_greater(matrix(logical(0), 0, 2), x)),
-    list(NULL, c("c1", "c2"))
+test_that("branchless missing-value loops match base R", {
+  operations <- list(
+    greater_than = list(rray_greater_than, `>`),
+    greater_than_or_equal = list(rray_greater_than_or_equal, `>=`),
+    less_than = list(rray_less_than, `<`),
+    less_than_or_equal = list(rray_less_than_or_equal, `<=`)
   )
-})
 
-test_that("Correct error is thrown with base R types", {
-  expect_error(
-    rray_greater(matrix(logical(), 0, 2), matrix(logical(), 0, 3)),
-    "\\(0, 2\\) and \\(0, 3\\)"
+  integer_values <- c(NA_integer_, -1L, 0L, 1L)
+  double_values <- c(NA_real_, NaN, -Inf, -1, -0, 0, 1, Inf)
+
+  make_case <- function(x_values, y_values = x_values) {
+    list(
+      x = rep(x_values, each = length(y_values)),
+      y = rep(y_values, times = length(x_values))
+    )
+  }
+
+  cases <- list(
+    logical = make_case(c(NA, FALSE, TRUE)),
+    integer = make_case(integer_values),
+    double = make_case(double_values),
+    logical_integer = make_case(c(NA, FALSE, TRUE), integer_values),
+    integer_logical = make_case(integer_values, c(NA, FALSE, TRUE)),
+    logical_double = make_case(c(NA, FALSE, TRUE), double_values),
+    double_logical = make_case(double_values, c(NA, FALSE, TRUE)),
+    integer_double = make_case(integer_values, double_values),
+    double_integer = make_case(double_values, integer_values)
   )
+
+  for (operation in operations) {
+    for (case in cases) {
+      expect_identical(
+        as.vector(operation[[1]](case$x, case$y)),
+        operation[[2]](case$x, case$y)
+      )
+    }
+  }
 })
 
-# ------------------------------------------------------------------------------
+test_that("drops names and titles", {
+  x <- array(1:3, c(3L, 1L), dimnames = list(R = c("r1", "r2", "r3"), "x"))
+  y <- array(1:2, c(1L, 2L), dimnames = list(S = "y", C = c("c1", "c2")))
+  z <- array(1:4, c(2L, 2L), dimnames = list(A = NULL, B = NULL))
 
-context("test-greater-equal")
-
-test_that("greater equal with rrays", {
-  expect_is(rray_greater_equal(rray(1), 1), "vctrs_rray_lgl")
-  expect_is(rray_greater_equal(1, rray(1)), "vctrs_rray_lgl")
-  expect_equal(rray(1) >= 1, rray(TRUE))
-})
-
-test_that("greater equal with base R", {
-  expect_equal(rray_greater_equal(1, 1), new_array(TRUE))
-
-  expect_equal(
-    rray_greater_equal(matrix(1:5), matrix(6:10)),
-    new_matrix(FALSE, c(5, 1))
+  fns <- list(
+    rray_greater_than,
+    rray_greater_than_or_equal,
+    rray_less_than,
+    rray_less_than_or_equal
   )
+
+  for (fn in fns) {
+    expect_null(dimnames(fn(x, x)))
+    expect_null(dimnames(fn(x, y)))
+    expect_null(dimnames(fn(z, z)))
+  }
 })
 
-test_that("ensure greater equal requiring a reshape view is correct", {
-  x <- array(1:8, c(2, 2, 2))
-  expect_equal(
-    rray_greater_equal(x, matrix(1:2)),
-    new_array(rep(TRUE, 8), dim = c(2, 2, 2))
+test_that("zero dimensions broadcast against dimensions of 1", {
+  x <- array(1L, c(1L, 2L))
+  y <- array(integer(), c(0L, 2L))
+  expect_identical(
+    rray_greater_than(x, y),
+    array(logical(), c(0L, 2L))
   )
+
+  x <- array(1L, c(1L, 1L))
+  y <- array(integer(), c(0L, 0L))
+  expect_identical(rray_less_than(x, y), array(logical(), c(0L, 0L)))
+
+  expect_identical(rray_greater_than(integer(), 1L), array(logical(), 0L))
 })
 
-test_that("expect that we can't compare with classed base r", {
-  expect_warning(factor("x") >= rray(1), "Incompatible methods")
+test_that("works with long vectors", {
+  skip_if_not_testing_long_vectors()
+
+  x <- array(FALSE, c(2^16, 2^15))
+  x[length(x)] <- TRUE
+
+  out <- rray_greater_than(x, FALSE)
+  expect_identical(out[c(1, length(out))], c(FALSE, TRUE))
+
+  out <- rray_greater_than_or_equal(x, TRUE)
+  expect_identical(out[c(1, length(out))], c(FALSE, TRUE))
+
+  out <- rray_less_than(x, TRUE)
+  expect_identical(out[c(1, length(out))], c(TRUE, FALSE))
+
+  out <- rray_less_than_or_equal(x, FALSE)
+  expect_identical(out[c(1, length(out))], c(TRUE, FALSE))
 })
 
-test_that("incompatible types are caught", {
-  expect_error(rray_greater_equal(rray(1), "hi"), class = "vctrs_error_incompatible_type")
+test_that("errors on incompatible dimensions", {
+  x <- array(1:6, c(3L, 2L))
+  y <- array(1L, c(2L, 2L))
+  expect_snapshot(rray_greater_than(x, y), error = TRUE)
 })
 
-test_that("comparison with NULL return empty common dimension", {
-  expect_equal(rray_greater_equal(1, NULL), new_array(logical()))
-  expect_equal(rray_greater_equal(matrix(1), NULL), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_greater_equal(array(1, c(1, 2, 2)), NULL), new_array(logical(), c(0, 2, 2)))
+test_that("errors on unsupported types", {
+  expect_snapshot(rray_greater_than(as.raw(1), as.raw(2)), error = TRUE)
+  expect_snapshot(rray_greater_than_or_equal(list(1), list(1)), error = TRUE)
+  expect_snapshot(rray_less_than(1i, 1i), error = TRUE)
+  expect_snapshot(rray_less_than_or_equal("a", "b"), error = TRUE)
 })
 
-test_that("0-length dimension behavior", {
-  expect_equal(rray_greater_equal(1, logical()), new_array(logical()))
-  expect_equal(rray_greater_equal(matrix(1), logical()), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_greater_equal(array(1, c(1, 2, 2)), logical()), new_array(logical(), c(0, 2, 2)))
-
-  expect_equal(rray_greater_equal(rep(1, 5), matrix(logical(), 1, 0)), new_array(logical(), c(5, 0)))
+test_that("a type error beats a dimension error", {
+  x <- array("a", c(2L, 2L))
+  y <- array("b", c(3L, 3L))
+  expect_snapshot(rray_greater_than(x, y), error = TRUE)
 })
 
-test_that("common dim of 0 and non-zero/non-one is an error", {
-  expect_error(rray_greater_equal(c(1, 1), logical()), "\\(2\\) and \\(0\\)")
-})
-
-test_that("dimension names are kept", {
-  x <- rray(c(TRUE, FALSE), c(1, 2), dim_names = list(c("r1"), c("c1", "c2")))
-
-  expect_equal(rray_dim_names(rray_greater_equal(x, 2)), rray_dim_names(x))
-  expect_equal(rray_dim_names(rray_greater_equal(matrix(1, 1, 2), x)), rray_dim_names(x))
-
-  expect_equal(
-    rray_dim_names(rray_greater_equal(matrix(logical(0), 0, 2), x)),
-    list(NULL, c("c1", "c2"))
-  )
-})
-
-# ------------------------------------------------------------------------------
-
-context("test-lesser")
-
-test_that("lesser with rrays", {
-  expect_is(rray_lesser(rray(1), 1), "vctrs_rray_lgl")
-  expect_is(rray_lesser(1, rray(1)), "vctrs_rray_lgl")
-  expect_equal(rray(1) < 1, rray(FALSE))
-})
-
-test_that("lesser with base R", {
-  expect_equal(rray_lesser(1, 1), new_array(FALSE))
-
-  expect_equal(
-    rray_lesser(matrix(1:5), matrix(6:10)),
-    new_matrix(TRUE, c(5, 1))
-  )
-})
-
-test_that("ensure lesser requiring a reshape view is correct", {
-  x <- array(1:8, c(2, 2, 2))
-  expect_equal(
-    rray_lesser(x, matrix(1:2)),
-    new_array(rep(FALSE, 8), dim = c(2, 2, 2))
-  )
-})
-
-test_that("expect that we can't compare with classed base r", {
-  expect_warning(factor("x") < rray(1), "Incompatible methods")
-})
-
-test_that("incompatible types are caught", {
-  expect_error(rray_lesser(rray(1), "hi"), class = "vctrs_error_incompatible_type")
-})
-
-test_that("comparison with NULL return empty common dimension", {
-  expect_equal(rray_lesser(1, NULL), new_array(logical()))
-  expect_equal(rray_lesser(matrix(1), NULL), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_lesser(array(1, c(1, 2, 2)), NULL), new_array(logical(), c(0, 2, 2)))
-})
-
-test_that("0-length dimension behavior", {
-  expect_equal(rray_lesser(1, logical()), new_array(logical()))
-  expect_equal(rray_lesser(matrix(1), logical()), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_lesser(array(1, c(1, 2, 2)), logical()), new_array(logical(), c(0, 2, 2)))
-
-  expect_equal(rray_lesser(rep(1, 5), matrix(logical(), 1, 0)), new_array(logical(), c(5, 0)))
-})
-
-test_that("common dim of 0 and non-zero/non-one is an error", {
-  expect_error(rray_lesser(c(1, 1), logical()), "\\(2\\) and \\(0\\)")
-})
-
-test_that("dimension names are kept", {
-  x <- rray(c(TRUE, FALSE), c(1, 2), dim_names = list(c("r1"), c("c1", "c2")))
-
-  expect_equal(rray_dim_names(rray_lesser(x, 2)), rray_dim_names(x))
-  expect_equal(rray_dim_names(rray_lesser(matrix(1, 1, 2), x)), rray_dim_names(x))
-
-  expect_equal(
-    rray_dim_names(rray_lesser(matrix(logical(0), 0, 2), x)),
-    list(NULL, c("c1", "c2"))
-  )
-})
-
-
-# ------------------------------------------------------------------------------
-
-context("test-lesser-equal")
-
-test_that("lesser equal with rrays", {
-  expect_is(rray_lesser_equal(rray(1), 1), "vctrs_rray_lgl")
-  expect_is(rray_lesser_equal(1, rray(1)), "vctrs_rray_lgl")
-  expect_equal(rray(1) <= 1, rray(TRUE))
-})
-
-test_that("lesser equal with base R", {
-  expect_equal(rray_lesser_equal(1, 1), new_array(TRUE))
-
-  expect_equal(
-    rray_lesser_equal(matrix(1:5), matrix(6:10)),
-    new_matrix(TRUE, c(5, 1))
-  )
-})
-
-test_that("ensure lesser equal requiring a reshape view is correct", {
-  x <- array(1:8, c(2, 2, 2))
-  expect_equal(
-    rray_lesser_equal(x, matrix(1:2)),
-    new_array(c(rep(TRUE, 2), rep(FALSE, 6)), dim = c(2, 2, 2))
-  )
-})
-
-test_that("expect that we can't compare with classed base r", {
-  expect_warning(factor("x") <= rray(1), "Incompatible methods")
-})
-
-test_that("incompatible types are caught", {
-  expect_error(rray_lesser_equal(rray(1), "hi"), class = "vctrs_error_incompatible_type")
-})
-
-test_that("comparison with NULL return empty common dimension", {
-  expect_equal(rray_lesser_equal(1, NULL), new_array(logical()))
-  expect_equal(rray_lesser_equal(matrix(1), NULL), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_lesser_equal(array(1, c(1, 2, 2)), NULL), new_array(logical(), c(0, 2, 2)))
-})
-
-test_that("0-length dimension behavior", {
-  expect_equal(rray_lesser_equal(1, logical()), new_array(logical()))
-  expect_equal(rray_lesser_equal(matrix(1), logical()), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_lesser_equal(array(1, c(1, 2, 2)), logical()), new_array(logical(), c(0, 2, 2)))
-
-  expect_equal(rray_lesser_equal(rep(1, 5), matrix(logical(), 1, 0)), new_array(logical(), c(5, 0)))
-})
-
-test_that("common dim of 0 and non-zero/non-one is an error", {
-  expect_error(rray_lesser_equal(c(1, 1), logical()), "\\(2\\) and \\(0\\)")
-})
-
-test_that("dimension names are kept", {
-  x <- rray(c(TRUE, FALSE), c(1, 2), dim_names = list(c("r1"), c("c1", "c2")))
-
-  expect_equal(rray_dim_names(rray_lesser_equal(x, 2)), rray_dim_names(x))
-  expect_equal(rray_dim_names(rray_lesser_equal(matrix(1, 1, 2), x)), rray_dim_names(x))
-
-  expect_equal(
-    rray_dim_names(rray_lesser_equal(matrix(logical(0), 0, 2), x)),
-    list(NULL, c("c1", "c2"))
-  )
-})
-
-# ------------------------------------------------------------------------------
-
-context("test-equal")
-
-test_that("equal with rrays", {
-  expect_is(rray_equal(rray(1), 1), "vctrs_rray_lgl")
-  expect_is(rray_equal(1, rray(1)), "vctrs_rray_lgl")
-  expect_equal(rray(1) == 1, rray(TRUE))
-})
-
-test_that("equal with base R", {
-  expect_equal(rray_equal(1, 1), new_array(TRUE))
-
-  expect_equal(
-    rray_equal(matrix(1:5), matrix(6:10)),
-    new_matrix(FALSE, c(5, 1))
-  )
-})
-
-test_that("ensure equal requiring a reshape view is correct", {
-  x <- array(1:8, c(2, 2, 2))
-  expect_equal(
-    rray_equal(x, matrix(1:2)),
-    new_array(c(rep(TRUE, 2), rep(FALSE, 6)), dim = c(2, 2, 2))
-  )
-})
-
-test_that("expect that we can't compare with classed base r", {
-  expect_warning(factor("x") == rray(1), "Incompatible methods")
-})
-
-test_that("incompatible types are caught", {
-  expect_error(rray_equal(rray(1), "hi"), class = "vctrs_error_incompatible_type")
-})
-
-test_that("comparison with NULL return empty common dimension", {
-  expect_equal(rray_equal(1, NULL), new_array(logical()))
-  expect_equal(rray_equal(matrix(1), NULL), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_equal(array(1, c(1, 2, 2)), NULL), new_array(logical(), c(0, 2, 2)))
-})
-
-test_that("0-length dimension behavior", {
-  expect_equal(rray_equal(1, logical()), new_array(logical()))
-  expect_equal(rray_equal(matrix(1), logical()), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_equal(array(1, c(1, 2, 2)), logical()), new_array(logical(), c(0, 2, 2)))
-
-  expect_equal(rray_equal(rep(1, 5), matrix(logical(), 1, 0)), new_array(logical(), c(5, 0)))
-})
-
-test_that("common dim of 0 and non-zero/non-one is an error", {
-  expect_error(rray_equal(c(1, 1), logical()), "\\(2\\) and \\(0\\)")
-})
-
-test_that("dimension names are kept", {
-  x <- rray(c(TRUE, FALSE), c(1, 2), dim_names = list(c("r1"), c("c1", "c2")))
-
-  expect_equal(rray_dim_names(rray_equal(x, 2)), rray_dim_names(x))
-  expect_equal(rray_dim_names(rray_equal(matrix(1, 1, 2), x)), rray_dim_names(x))
-
-  expect_equal(
-    rray_dim_names(rray_equal(matrix(logical(0), 0, 2), x)),
-    list(NULL, c("c1", "c2"))
-  )
-})
-
-# ------------------------------------------------------------------------------
-
-context("test-not-equal")
-
-test_that("not equal with rrays", {
-  expect_is(rray_not_equal(rray(1), 1), "vctrs_rray_lgl")
-  expect_is(rray_not_equal(1, rray(1)), "vctrs_rray_lgl")
-  expect_equal(rray(1) != 1, rray(FALSE))
-})
-
-test_that("not equal with base R", {
-  expect_equal(rray_not_equal(1, 1), new_array(FALSE))
-  expect_equal(rray_not_equal(1, 1L), new_array(FALSE))
-  expect_equal(rray_not_equal(1, TRUE), new_array(FALSE))
-
-  expect_equal(
-    rray_not_equal(matrix(1:5), matrix(6:10)),
-    new_matrix(TRUE, c(5, 1))
-  )
-})
-
-test_that("ensure not equal requiring a reshape view is correct", {
-  x <- array(1:8, c(2, 2, 2))
-  expect_equal(
-    rray_not_equal(x, matrix(1:2)),
-    new_array(c(rep(FALSE, 2), rep(TRUE, 6)), dim = c(2, 2, 2))
-  )
-})
-
-test_that("expect that we can't compare with classed base r", {
-  expect_warning(factor("x") != rray(1), "Incompatible methods")
-})
-
-test_that("incompatible types are caught", {
-  expect_error(rray_not_equal(rray(1), "hi"), class = "vctrs_error_incompatible_type")
-})
-
-test_that("comparison with NULL return empty common dimension", {
-  expect_equal(rray_not_equal(1, NULL), new_array(logical()))
-  expect_equal(rray_not_equal(matrix(1), NULL), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_not_equal(array(1, c(1, 2, 2)), NULL), new_array(logical(), c(0, 2, 2)))
-})
-
-test_that("0-length dimension behavior", {
-  expect_equal(rray_not_equal(1, logical()), new_array(logical()))
-  expect_equal(rray_not_equal(matrix(1), logical()), new_matrix(logical(), c(0, 1)))
-  expect_equal(rray_not_equal(array(1, c(1, 2, 2)), logical()), new_array(logical(), c(0, 2, 2)))
-
-  expect_equal(rray_not_equal(rep(1, 5), matrix(logical(), 1, 0)), new_array(logical(), c(5, 0)))
-})
-
-test_that("common dim of 0 and non-zero/non-one is an error", {
-  expect_error(rray_not_equal(c(1, 1), logical()), "\\(2\\) and \\(0\\)")
-})
-
-test_that("dimension names are kept", {
-  x <- rray(c(TRUE, FALSE), c(1, 2), dim_names = list(c("r1"), c("c1", "c2")))
-
-  expect_equal(rray_dim_names(rray_not_equal(x, 2)), rray_dim_names(x))
-  expect_equal(rray_dim_names(rray_not_equal(matrix(1, 1, 2), x)), rray_dim_names(x))
-
-  expect_equal(
-    rray_dim_names(rray_not_equal(matrix(logical(0), 0, 2), x)),
-    list(NULL, c("c1", "c2"))
-  )
-})
-
-# ------------------------------------------------------------------------------
-context("test-all-equal")
-
-test_that("equality is checked", {
-  expect_true(rray_all_equal(1, 1))
-  expect_true(rray_all_equal(1L, 1L))
-  expect_true(rray_all_equal(matrix(1), matrix(1)))
-
-  expect_false(rray_all_equal(1, 2))
-  expect_false(rray_all_equal(1L, 2L))
-  expect_false(rray_all_equal(matrix(1), matrix(2)))
-})
-
-test_that("dimension names don't matter", {
-  x <- rray(1, dim_names = list("hi"))
-  expect_true(rray_all_equal(x, rray(1)))
-})
-
-test_that("underlying type matters", {
-  expect_false(rray_all_equal(1, 1L))
-  expect_false(rray_all_equal(matrix(1), matrix(1L)))
-})
-
-test_that("class matters", {
-  expect_false(rray_all_equal(rray(1), array(1)))
-})
-
-test_that("broadcasting is not performed", {
-  expect_false(rray_all_equal(c(1, 1), 1))
-})
-
-test_that("works with 0 length input", {
-  expect_true(rray_all_equal(double(), double()))
-  expect_false(rray_all_equal(double(), logical()))
-})
-
-test_that("works with NULL input", {
-  expect_false(rray_all_equal(double(), NULL))
-  expect_equal(rray_all_equal(NULL, NULL), TRUE)
-})
-
-# ------------------------------------------------------------------------------
-context("test-any-not-equal")
-
-test_that("equality is checked", {
-  expect_true(rray_any_not_equal(1, 2))
-  expect_true(rray_any_not_equal(1L, 2L))
-  expect_true(rray_any_not_equal(matrix(1), matrix(2)))
-
-  expect_false(rray_any_not_equal(1, 1))
-  expect_false(rray_any_not_equal(1L, 1L))
-  expect_false(rray_any_not_equal(matrix(1), matrix(1)))
-})
-
-test_that("dimension names don't matter", {
-  x <- rray(1, dim_names = list("hi"))
-  expect_false(rray_any_not_equal(x, rray(1)))
-})
-
-test_that("underlying type matters", {
-  expect_true(rray_any_not_equal(1, 1L))
-})
-
-test_that("class matters", {
-  expect_true(rray_any_not_equal(rray(1), array(1)))
-})
-
-test_that("broadcasting is not performed", {
-  expect_true(rray_any_not_equal(c(1, 1), 1))
-})
-
-test_that("works with 0 length input", {
-  expect_false(rray_any_not_equal(double(), double()))
-  expect_true(rray_any_not_equal(double(), logical()))
-})
-
-test_that("works with NULL input", {
-  expect_true(rray_any_not_equal(double(), NULL))
-  expect_equal(rray_any_not_equal(NULL, NULL), FALSE)
+test_that("errors on scalar and classed input", {
+  expect_snapshot(rray_greater_than(NULL, 1L), error = TRUE)
+  expect_snapshot(rray_less_than(1L, NULL), error = TRUE)
+
+  x <- structure(1L, class = "foo")
+  expect_snapshot(rray_greater_than(x, 1L), error = TRUE)
+  expect_snapshot(rray_less_than(1L, x), error = TRUE)
 })

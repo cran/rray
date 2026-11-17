@@ -1,0 +1,153 @@
+static r_obj* rray_compare(
+  r_obj* x,
+  r_obj* y,
+  enum rray_compare_op op,
+  struct rray_arg* x_arg,
+  struct rray_arg* y_arg,
+  struct r_lazy error_call
+);
+static rray_compare_fn rray_compare_switch(
+  r_obj* x,
+  r_obj* y,
+  enum rray_compare_op op,
+  struct rray_arg* x_arg,
+  struct rray_arg* y_arg,
+  struct r_lazy error_call
+);
+static const char* rray_compare_op_as_c_string(enum rray_compare_op op);
+
+static r_no_return void stop_unsupported_compare(
+  const char* op,
+  r_obj* x,
+  r_obj* y,
+  struct rray_arg* x_arg,
+  struct rray_arg* y_arg,
+  struct r_lazy error_call
+);
+
+static r_obj* rray_compare_lgl_lgl(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+static r_obj* rray_compare_lgl_int(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+static r_obj* rray_compare_int_lgl(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+static r_obj* rray_compare_lgl_dbl(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+static r_obj* rray_compare_dbl_lgl(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+static r_obj* rray_compare_int_int(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+static r_obj* rray_compare_int_dbl(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+static r_obj* rray_compare_dbl_int(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+static r_obj* rray_compare_dbl_dbl(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  enum rray_compare_op op
+);
+
+static inline int rray_greater_than_lgl_lgl_one(int x, int y);
+static inline int rray_greater_than_or_equal_lgl_lgl_one(int x, int y);
+static inline int rray_less_than_lgl_lgl_one(int x, int y);
+static inline int rray_less_than_or_equal_lgl_lgl_one(int x, int y);
+
+static inline int rray_greater_than_lgl_int_one(int x, int y);
+static inline int rray_greater_than_or_equal_lgl_int_one(int x, int y);
+static inline int rray_less_than_lgl_int_one(int x, int y);
+static inline int rray_less_than_or_equal_lgl_int_one(int x, int y);
+
+static inline int rray_greater_than_int_lgl_one(int x, int y);
+static inline int rray_greater_than_or_equal_int_lgl_one(int x, int y);
+static inline int rray_less_than_int_lgl_one(int x, int y);
+static inline int rray_less_than_or_equal_int_lgl_one(int x, int y);
+
+static inline int rray_greater_than_lgl_dbl_one(int x, double y);
+static inline int rray_greater_than_or_equal_lgl_dbl_one(int x, double y);
+static inline int rray_less_than_lgl_dbl_one(int x, double y);
+static inline int rray_less_than_or_equal_lgl_dbl_one(int x, double y);
+
+static inline int rray_greater_than_dbl_lgl_one(double x, int y);
+static inline int rray_greater_than_or_equal_dbl_lgl_one(double x, int y);
+static inline int rray_less_than_dbl_lgl_one(double x, int y);
+static inline int rray_less_than_or_equal_dbl_lgl_one(double x, int y);
+
+static inline int rray_greater_than_int_int_one(int x, int y);
+static inline int rray_greater_than_or_equal_int_int_one(int x, int y);
+static inline int rray_less_than_int_int_one(int x, int y);
+static inline int rray_less_than_or_equal_int_int_one(int x, int y);
+
+static inline int rray_greater_than_int_dbl_one(int x, double y);
+static inline int rray_greater_than_or_equal_int_dbl_one(int x, double y);
+static inline int rray_less_than_int_dbl_one(int x, double y);
+static inline int rray_less_than_or_equal_int_dbl_one(int x, double y);
+
+static inline int rray_greater_than_dbl_int_one(double x, int y);
+static inline int rray_greater_than_or_equal_dbl_int_one(double x, int y);
+static inline int rray_less_than_dbl_int_one(double x, int y);
+static inline int rray_less_than_or_equal_dbl_int_one(double x, int y);
+
+static inline int rray_greater_than_dbl_dbl_one(double x, double y);
+static inline int rray_greater_than_or_equal_dbl_dbl_one(double x, double y);
+static inline int rray_less_than_dbl_dbl_one(double x, double y);
+static inline int rray_less_than_or_equal_dbl_dbl_one(double x, double y);

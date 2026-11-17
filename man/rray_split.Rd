@@ -2,79 +2,53 @@
 % Please edit documentation in R/split.R
 \name{rray_split}
 \alias{rray_split}
-\title{Split an array along axes}
+\title{Split an array along an axis}
 \usage{
-rray_split(x, axes = NULL)
+rray_split(x, ..., axis, dimensions)
 }
 \arguments{
-\item{x}{A vector, matrix, array, or rray.}
+\item{x}{An array.}
 
-\item{axes}{An integer vector. The axes to split on. The default splits
-along all axes.}
+\item{...}{These dots are for future extensions and must be empty.}
+
+\item{axis}{The axis to split along, given
+\link[=faq-axes]{by position or by title}.}
+
+\item{dimensions}{One of:
+\itemize{
+\item A single positive integer, used as the dimension of every array. It must
+evenly divide the dimension of \code{x} along \code{axis}.
+\item A vector of positive (or zero) integers, giving the dimension of each
+array directly. They must sum to the dimension of \code{x} along \code{axis}.
+}}
 }
 \value{
-A list of sub arrays of type \code{x}.
+A list of arrays each with the same dimensions as \code{x}, except along \code{axis}.
 }
 \description{
-\code{rray_split()} splits \code{x} into equal pieces, splitting along the \code{axes}.
-}
-\details{
-\code{rray_split()} works by splitting along the \code{axes}. The result is a list
-of sub arrays, where the \code{axes} of each sub array have been reduced to
-length 1. This is consistent with how reducers like \code{\link[=rray_sum]{rray_sum()}} work. As
-an example, splitting a \code{(2, 3, 5)} array along \code{axes = c(2, 3)} would
-result in a list of 15 (from \code{3 * 5}) sub arrays, each with
-shape \code{(2, 1, 1)}.
+\code{rray_split()} divides \code{x} into contiguous arrays along an \code{axis}.
+
+Using \code{rray_combine()} along the same \code{axis} reconstructs \code{x}.
 }
 \examples{
+x <- array(1:12, c(6, 2))
 
-x <- matrix(1:8, ncol = 2)
+# Three arrays of two rows
+rray_split(x, axis = 1, dimensions = 2)
 
-# Split the rows
-# (4, 2) -> (1, 2)
-rray_split(x, 1)
+# Arrays of one and five rows
+rray_split(x, axis = 1, dimensions = c(1, 5))
 
-# Split the columns
-# (4, 2) -> (4, 1)
-rray_split(x, 2)
+# One array per column
+rray_split(x, axis = 2, dimensions = 1)
 
-# Split along multiple dimensions
-# (4, 2) -> (1, 1)
-rray_split(x, c(1, 2))
+# One array per column, by title
+y <- rray_set_titles(x, c("row", "col"))
+rray_split(y, axis = "col", dimensions = 1)
 
-# The above split is the default behavior
-rray_split(x)
+# Arrays of dimension zero are allowed in the explicit form
+rray_split(x, axis = 2, dimensions = c(0, 2))
 
-# You can technically split with a size 0 `axes`
-# argument, which essentially requests no axes
-# to be split and is the same as `list(x)`
-rray_split(x, axes = integer(0))
-
-# ---------------------------------------------------------------------------
-# 4 dimensional example
-
-x_4d <- rray(
-  x = 1:16,
-  dim = c(2, 2, 2, 2),
-  dim_names = list(
-    c("r1", "r2"),
-    c("c1", "c2"),
-    c("d1", "d2"),
-    c("e1", "e2")
-  )
-)
-
-# Split along the 1st dimension (rows)
-# (2, 2, 2, 2) -> (1, 2, 2, 2)
-rray_split(x_4d, 1)
-
-# Split along columns
-# (2, 2, 2, 2) -> (2, 1, 2, 2)
-rray_split(x_4d, 2)
-
-# Probably the most useful thing you might do
-# is use this to split the 4D array into a set
-# of 4 2D matrices.
-rray_split(x_4d, c(3, 4))
-
+# Splitting and combining along the same axis are inverses
+rray_combine(!!!rray_split(x, axis = 1, dimensions = 3), .axis = 1)
 }

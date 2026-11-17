@@ -1,42 +1,69 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# rray
+# rray <a href='https://r-lib.github.io/rray/'><img src='man/figures/logo.png' align="right" height="139" /></a>
 
 <!-- badges: start -->
 
-[![Lifecycle:
-experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://www.tidyverse.org/lifecycle/#experimental)
-[![Travis build
-status](https://travis-ci.org/r-lib/rray.svg?branch=master)](https://travis-ci.org/r-lib/rray)
+[![R-CMD-check](https://github.com/r-lib/rray/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/r-lib/rray/actions/workflows/R-CMD-check.yaml)
 [![Codecov test
-coverage](https://codecov.io/gh/r-lib/rray/branch/master/graph/badge.svg)](https://codecov.io/gh/r-lib/rray?branch=master)
+coverage](https://codecov.io/gh/r-lib/rray/graph/badge.svg)](https://app.codecov.io/gh/r-lib/rray)
 <!-- badges: end -->
 
-## Introduction
+rray (said: “r-ray”) is an array manipulation library for R. rray’s goal
+is to provide a consistent, powerful toolkit for array manipulation,
+usable on base R arrays.
 
-rray (said: “r-ray”) is an array manipulation library for R. It has
-three main goals:
+## Installation
 
-1)  To provide an rray class that tries to be stricter and more
-    consistent than base R arrays, similar in spirit to tibble.
+You can install the CRAN version of rray with:
 
-2)  To support broadcasting throughout the package, which allows for
-    novel yet intuitive array operations that have been missing from the
-    R ecosystem.
+``` r
+install.packages("rray")
+```
 
-3)  To provide a consistent, powerful toolkit for array based
-    manipulation, usable by both the new rray objects and base R
-    matrices/arrays.
+You can install the development version of rray from
+[GitHub](https://github.com/) with:
 
-View the vignettes for each goal on [the
-website](https://rray.r-lib.org) to learn more about how to use rray.
+``` r
+# install.packages("pak")
+pak::pak("r-lib/rray")
+```
 
-  - `vignette("the-rray")`
-  - `vignette("broadcasting")`
-  - `vignette("toolkit")`
+## Why use rray?
 
-<!-- end list -->
+- It is *consistent*! Talking about arrays is hard! Dimensions, axes,
+  and margins are all terms that are thrown around loosely when refering
+  to arrays. rray has been thoughtfully designed to use a very
+  consistent set of
+  [terminology](https://r-lib.github.io/rray/articles/terminology.html)
+  throughout the entire package. Once you learn a few key terms, using
+  the package should feel pretty natural.
+
+- It is *fast*! rray is written entirely in C. Reduction functions like
+  `rray_sum()` and accumulators such as `rray_cumulative_max()` are
+  often significantly faster than their base R equivalents.
+  Additionally, while base R has fast variants like `rowSums()` and
+  `colSums()`, rray equivalents like `rray_sum()` can sum over any axis
+  (like the 3rd axis), and over multiple axes at once (summing up the
+  rows and columns in a 3D array).
+
+- It implements *broadcasting*! Popularized by Python’s
+  [NumPy](https://numpy.org/), broadcasting is a technique that recycles
+  an axis of dimension 1 against any other dimension. This allows for
+  novel yet intuitive array operations, which you can read more about
+  below, or in the
+  [broadcasting](https://r-lib.github.io/rray/articles/broadcasting.html)
+  vignette.
+
+- It supports *long vectors*! A “long” vector in R is any vector greater
+  than ~2 billion elements in length. R requires that each array axis
+  have a dimension less than that limit, but the total size of the array
+  (the product of each dimension) can be “long”. rray fully supports
+  these long arrays throughout the entire package.
+
+View [the website](https://r-lib.github.io/rray/) to learn more about
+how to use rray, or read on for a quick overview.
 
 ``` r
 library(rray)
@@ -44,16 +71,58 @@ library(rray)
 
 ## What can it do?
 
-In short, rray tries to make array manipulation in R more intuitive by
-combining the idea of broadcasting with knowing when to *not* drop
-dimensions. This results in operations such as:
+rray reimagines array based operations on top of a concept called
+*broadcasting*. If you are familiar with the [tidyverse recycling
+rules](https://vctrs.r-lib.org/reference/theory-faq-recycling.html) that
+state that a vector of size 1 can be *recycled* to any other size, then
+you’re already most of the way to understanding broadcasting.
+Broadcasting takes that principle and applies it to each axis of an
+array. For example:
 
 ``` r
-x <- rray(1:6, dim = c(3, 2))
+x <- array(1:3, dim = c(1, 3))
+x
+#>      [,1] [,2] [,3]
+#> [1,]    1    2    3
+
+y <- array(1:6, dim = c(2, 3))
+y
+#>      [,1] [,2] [,3]
+#> [1,]    1    3    5
+#> [2,]    2    4    6
+
+# Error with base R, non-conformable arrays
+x + y
+#> Error in `x + y`:
+#> ! non-conformable arrays
+
+# Broadcasts `x`'s first axis to match the 2x3 dimensions of `y`
+rray_add(x, y)
+#>      [,1] [,2] [,3]
+#> [1,]    2    5    8
+#> [2,]    3    6    9
+```
+
+Broadcasting is used throughout the entire package and allows you to
+elegantly chain operations together. For example, you can sum down the
+rows and then compute proportions by using a broadcasted divide.
+
+``` r
+x <- array(1:6, dim = c(3, 2))
+x
+#>      [,1] [,2]
+#> [1,]    1    4
+#> [2,]    2    5
+#> [3,]    3    6
+
+# Sum down the rows
+sums <- rray_sum(x, axes = 1)
+sums
+#>      [,1] [,2]
+#> [1,]    6   15
 
 # Compute proportions along the 1st dimension
-x / rray_sum(x, axes = 1)
-#> <rray<dbl>[,2][3]>
+rray_divide(x, sums)
 #>           [,1]      [,2]
 #> [1,] 0.1666667 0.2666667
 #> [2,] 0.3333333 0.3333333
@@ -61,37 +130,35 @@ x / rray_sum(x, axes = 1)
 
 # Equivalent base R syntax
 sweep(x, 2, apply(x, 2, sum), "/")
-#> <rray<dbl>[,2][3]>
 #>           [,1]      [,2]
 #> [1,] 0.1666667 0.2666667
 #> [2,] 0.3333333 0.3333333
 #> [3,] 0.5000000 0.4000000
 ```
 
-These concepts are baked into every part of rray, and show up in other
-functions such as `rray_bind()`. Using broadcasting, `rray_bind()` can
-bind arrays together in ways that base R cannot with the native
-`cbind()` and `rbind()` functions.
+When combining arrays with `rray_combine()`, broadcasting allows you to
+combine in ways that base R cannot with the native `cbind()` and
+`rbind()` functions:
 
 ``` r
 a <- array(c(1, 2), dim = c(2, 1))
-b <- array(c(3, 4), dim = c(1, 2))
-
 a
 #>      [,1]
 #> [1,]    1
 #> [2,]    2
 
+b <- array(c(3, 4), dim = c(1, 2))
 b
 #>      [,1] [,2]
 #> [1,]    3    4
 
 # Error
 cbind(a, b)
-#> Error in cbind(a, b): number of rows of matrices must match (see arg 2)
+#> Error in `cbind()`:
+#> ! number of rows of matrices must match (see arg 2)
 
 # `a` is first broadcast to have dimensions: (2, 2)
-rray_bind(a, b, .axis = 1)
+rray_combine(a, b, .axis = 1)
 #>      [,1] [,2]
 #> [1,]    1    1
 #> [2,]    2    2
@@ -99,35 +166,30 @@ rray_bind(a, b, .axis = 1)
 
 # Error
 rbind(a, b)
-#> Error in rbind(a, b): number of columns of matrices must match (see arg 2)
+#> Error in `rbind()`:
+#> ! number of columns of matrices must match (see arg 2)
 
 # `b` is first broadcast to have dimensions: (2, 2)
-rray_bind(a, b, .axis = 2)
+rray_combine(a, b, .axis = 2)
 #>      [,1] [,2] [,3]
 #> [1,]    1    3    4
 #> [2,]    2    3    4
 ```
 
-## Installation
-
-You can install from Github with:
-
-``` r
-devtools::install_github("r-lib/rray")
-```
-
 ## Acknowledgements
 
-rray would not be possible without the underlying C++ library,
-[`xtensor`](https://github.com/QuantStack/xtensor). Additionally, rray
-uses a large amount of the infrastructure in
-[`vctrs`](https://github.com/r-lib/vctrs) to be as consistent and type
-stable as possible.
+rray was originally written in 2018 and was backed by
+[`xtensor`](https://github.com/xtensor-stack/xtensor). That original
+implementation is archived as
+[DavisVaughan/rray1](https://github.com/DavisVaughan/rray1), but its API
+served as the foundation for this rewrite.
 
-## Alternatives
-
-The Matrix package implements a small subset of column-wise broadcasting
-operations. rray fully supports broadcasting in all operations.
+rray uses a large amount of theory from
+[`vctrs`](https://github.com/r-lib/vctrs) to be consistent and type
+stable. For example, broadcasting is just an extension of the [tidyverse
+recycling
+rules](https://vctrs.r-lib.org/reference/theory-faq-recycling.html),
+applied to all axes of the array.
 
 The original motivation for this package, and even for xtensor, is the
 excellent Python library, NumPy. As far as I know, it has the original
@@ -138,13 +200,8 @@ In the past, the workhorse for flexibly binding arrays together has been
 the abind package. This package has been a great source of inspiration
 and has served as a nice benchmark for rray.
 
-## Notes
+## Limitations
 
-Currently, rray does not handle missing values in arithmetic operations
-and the reducing functions. This is coming, as the underlying library
-xtensor natively supports missing values, however a few upstream bugs
-are currently preventing rray from using those features.
-
-rray will perform best on R 3.6.0 and above. It is able to take
-advantage of a few of the ALTREP features there, which result in less
-copies being made per function call.
+- No S3 support. rray is currently a closed system and only works on
+  base R arrays. This allows us to get the API right without having to
+  worry about extensibility.

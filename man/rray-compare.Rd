@@ -2,80 +2,44 @@
 % Please edit documentation in R/compare.R
 \name{rray-compare}
 \alias{rray-compare}
-\alias{>.vctrs_rray}
-\alias{rray_greater}
-\alias{>=.vctrs_rray}
-\alias{rray_greater_equal}
-\alias{<.vctrs_rray}
-\alias{rray_lesser}
-\alias{<=.vctrs_rray}
-\alias{rray_lesser_equal}
-\alias{==.vctrs_rray}
-\alias{rray_equal}
-\alias{!=.vctrs_rray}
-\alias{rray_not_equal}
+\alias{rray_greater_than}
+\alias{rray_greater_than_or_equal}
+\alias{rray_less_than}
+\alias{rray_less_than_or_equal}
 \title{Compare arrays}
 \usage{
-\method{>}{vctrs_rray}(e1, e2)
+rray_greater_than(x, y)
 
-rray_greater(x, y)
+rray_greater_than_or_equal(x, y)
 
-\method{>=}{vctrs_rray}(e1, e2)
+rray_less_than(x, y)
 
-rray_greater_equal(x, y)
-
-\method{<}{vctrs_rray}(e1, e2)
-
-rray_lesser(x, y)
-
-\method{<=}{vctrs_rray}(e1, e2)
-
-rray_lesser_equal(x, y)
-
-\method{==}{vctrs_rray}(e1, e2)
-
-rray_equal(x, y)
-
-\method{!=}{vctrs_rray}(e1, e2)
-
-rray_not_equal(x, y)
+rray_less_than_or_equal(x, y)
 }
 \arguments{
-\item{e1, e2}{Generally, the same as \code{x} and \code{y}. See Details.}
+\item{x}{An array.}
 
-\item{x, y}{Two vectors, matrices, arrays, or rrays.}
+\item{y}{An array.}
 }
 \value{
-The value of the comparison, with dimensions identical to the common
-dimensions of the inputs.
+A logical array with the common dimensions of \code{x} and \code{y}, and no names.
 }
 \description{
-These operators compare multiple arrays together, with broadcasting. The
-underlying functions powering the comparison operators are also exported
-for use with base R objects.
+\itemize{
+\item \code{rray_greater_than()} tests whether \code{x} is greater than \code{y}.
+\item \code{rray_greater_than_or_equal()} tests whether \code{x} is greater than or equal
+to \code{y}.
+\item \code{rray_less_than()} tests whether \code{x} is less than \code{y}.
+\item \code{rray_less_than_or_equal()} tests whether \code{x} is less than or equal to
+\code{y}.
+}
 }
 \details{
-The comparison operators themselves rely on R's dispatching rules to
-dispatch to the correct rray comparison operator. When comparing rrays with
-base R matrices and arrays, this generally works fine. However, if you
-compare classed objects like \code{factor("x") > rray(1)} then a fall through
-method is used and a warning is thrown. There is nothing we can do about
-this. See \code{?groupGeneric} for more information on this.
+The arrays are broadcast to common dimensions before they are compared.
 }
 \examples{
-x <- rray(1:12, c(2, 2, 3))
-y <- matrix(1:2)
+x <- array(1:6, c(3L, 2L))
 
-# True except in first 2 positions
-x > y
-
-# All true
-x >= y
-
-# False everywhere
-x < y
-
-# False except in the first 2 positions
-x <= y
-
+rray_greater_than(x, 3L)
+rray_less_than_or_equal(x, array(c(2L, 5L), c(1L, 2L)))
 }

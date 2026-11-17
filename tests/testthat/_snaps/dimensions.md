@@ -1,0 +1,216 @@
+# errors on NULL
+
+    Code
+      rray_dimensions(NULL)
+    Condition
+      Error in `rray_dimensions()`:
+      ! `x` must be an array, not `NULL`.
+
+# errors on non-vector types
+
+    Code
+      rray_dimensions(mean)
+    Condition
+      Error in `rray_dimensions()`:
+      ! `x` must be an array, not a function.
+
+---
+
+    Code
+      rray_dimensions(quote(x))
+    Condition
+      Error in `rray_dimensions()`:
+      ! `x` must be an array, not a symbol.
+
+---
+
+    Code
+      rray_dimensions(environment())
+    Condition
+      Error in `rray_dimensions()`:
+      ! `x` must be an array, not an environment.
+
+# errors on classed input
+
+    Code
+      rray_dimensions(x)
+    Condition
+      Error in `rray_dimensions()`:
+      ! `x` must be a bare array, not a <foo> object.
+
+---
+
+    Code
+      rray_dimensions_common(x)
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! `..1` must be a bare array, not a <foo> object.
+
+---
+
+    Code
+      rray_set_dimensions(x, 4L)
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! `x` must be a bare array, not a <foo> object.
+
+# errors on NULL inputs
+
+    Code
+      rray_dimensions_common(NULL, 1:5)
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! `..1` must be an array, not `NULL`.
+    Code
+      rray_dimensions_common(1:5, NULL)
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! `..2` must be an array, not `NULL`.
+    Code
+      rray_dimensions_common(x = 1:5, y = NULL)
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! `y` must be an array, not `NULL`.
+    Code
+      rray_dimensions_common(NULL, NULL)
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! `..1` must be an array, not `NULL`.
+
+# errors on incompatible dimensions
+
+    Code
+      rray_dimensions_common(array(1, c(2, 3)), array(1, c(4, 3)))
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! Can't find common dimensions at axis 1. `..1` has dimension 2 and `..2` has dimension 4.
+
+# errors name the problematic input
+
+    Code
+      rray_dimensions_common(x = array(1, c(2, 3)), y = array(1, c(4, 3)))
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! Can't find common dimensions at axis 1. `x` has dimension 2 and `y` has dimension 4.
+
+# errors name the input that set the conflicting axis
+
+    Code
+      rray_dimensions_common(a = array(1, c(2, 1)), b = array(1, c(1, 3)), c = array(
+        1, c(2, 4)))
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! Can't find common dimensions at axis 2. `b` has dimension 3 and `c` has dimension 4.
+
+# errors handle a name longer than the argument tag buffer
+
+    Code
+      do.call(rray_dimensions_common, args)
+    Condition
+      Error:
+      ! `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` must be an array, not `NULL`.
+
+# errors handle a non-syntactic name
+
+    Code
+      rray_dimensions_common(`a b` = NULL)
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! `a b` must be an array, not `NULL`.
+
+# errors on zero inputs
+
+    Code
+      rray_dimensions_common()
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! Must supply at least one array to `...`.
+
+# `.dimensions` errors use its own argument name
+
+    Code
+      rray_dimensions_common(1, .dimensions = "a")
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! `.dimensions` must be an integer or double vector, not the string "a".
+
+---
+
+    Code
+      rray_dimensions_common(1, .dimensions = integer())
+    Condition
+      Error in `rray_dimensions_common()`:
+      ! `.dimensions` must have at least one element.
+
+# errors when size would change
+
+    Code
+      rray_set_dimensions(1:6, c(6L, 2L))
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! Can't set these dimensions. Can't change from a size of 6 to a size of 12.
+
+# errors when dimensions overflow the maximum size
+
+    Code
+      rray_set_dimensions(integer(), rep(65536L, 4))
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! Size (1.84467e+19) computed from dimensions `(65536, 65536, 65536, 65536)` is too large.
+
+# errors on non-array input
+
+    Code
+      rray_set_dimensions(NULL, 1L)
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! `x` must be an array, not `NULL`.
+
+---
+
+    Code
+      rray_set_dimensions(mean, 1L)
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! `x` must be an array, not a function.
+
+# coerces dimensions to integer
+
+    Code
+      rray_set_dimensions(1, 2.5)
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! `dimensions` must contain whole numbers that fit in an integer. Problem at location 1.
+
+# errors on non-coercible dimensions
+
+    Code
+      rray_set_dimensions(1, "a")
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! `dimensions` must be an integer or double vector, not the string "a".
+
+# errors on empty dimensions
+
+    Code
+      rray_set_dimensions(1, integer())
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! `dimensions` must have at least one element.
+
+# errors on missing dimensions
+
+    Code
+      rray_set_dimensions(1, NA_integer_)
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! `dimensions` must not contain missing values.
+
+# errors on negative dimensions
+
+    Code
+      rray_set_dimensions(1, -1L)
+    Condition
+      Error in `rray_set_dimensions()`:
+      ! `dimensions` must not contain negative values.
+

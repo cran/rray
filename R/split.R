@@ -1,94 +1,51 @@
-#' Split an array along axes
+#' Split an array along an axis
 #'
-#' `rray_split()` splits `x` into equal pieces, splitting along the `axes`.
+#' @description
+#' `rray_split()` divides `x` into contiguous arrays along an `axis`.
 #'
-#' @param x A vector, matrix, array, or rray.
+#' Using `rray_combine()` along the same `axis` reconstructs `x`.
 #'
-#' @param axes An integer vector. The axes to split on. The default splits
-#' along all axes.
+#' @inheritParams rlang::args_dots_empty
 #'
-#' @details
+#' @param x An array.
 #'
-#' `rray_split()` works by splitting along the `axes`. The result is a list
-#' of sub arrays, where the `axes` of each sub array have been reduced to
-#' length 1. This is consistent with how reducers like [rray_sum()] work. As
-#' an example, splitting a `(2, 3, 5)` array along `axes = c(2, 3)` would
-#' result in a list of 15 (from `3 * 5`) sub arrays, each with
-#' shape `(2, 1, 1)`.
+#' @param axis The axis to split along, given
+#'   [by position or by title][faq-axes].
 #'
-#' @return
+#' @param dimensions One of:
 #'
-#' A list of sub arrays of type `x`.
+#'   - A single positive integer, used as the dimension of every array. It must
+#'     evenly divide the dimension of `x` along `axis`.
 #'
-#' @examples
+#'   - A vector of positive (or zero) integers, giving the dimension of each
+#'     array directly. They must sum to the dimension of `x` along `axis`.
 #'
-#' x <- matrix(1:8, ncol = 2)
-#'
-#' # Split the rows
-#' # (4, 2) -> (1, 2)
-#' rray_split(x, 1)
-#'
-#' # Split the columns
-#' # (4, 2) -> (4, 1)
-#' rray_split(x, 2)
-#'
-#' # Split along multiple dimensions
-#' # (4, 2) -> (1, 1)
-#' rray_split(x, c(1, 2))
-#'
-#' # The above split is the default behavior
-#' rray_split(x)
-#'
-#' # You can technically split with a size 0 `axes`
-#' # argument, which essentially requests no axes
-#' # to be split and is the same as `list(x)`
-#' rray_split(x, axes = integer(0))
-#'
-#' # ---------------------------------------------------------------------------
-#' # 4 dimensional example
-#'
-#' x_4d <- rray(
-#'   x = 1:16,
-#'   dim = c(2, 2, 2, 2),
-#'   dim_names = list(
-#'     c("r1", "r2"),
-#'     c("c1", "c2"),
-#'     c("d1", "d2"),
-#'     c("e1", "e2")
-#'   )
-#' )
-#'
-#' # Split along the 1st dimension (rows)
-#' # (2, 2, 2, 2) -> (1, 2, 2, 2)
-#' rray_split(x_4d, 1)
-#'
-#' # Split along columns
-#' # (2, 2, 2, 2) -> (2, 1, 2, 2)
-#' rray_split(x_4d, 2)
-#'
-#' # Probably the most useful thing you might do
-#' # is use this to split the 4D array into a set
-#' # of 4 2D matrices.
-#' rray_split(x_4d, c(3, 4))
+#' @returns
+#' A list of arrays each with the same dimensions as `x`, except along `axis`.
 #'
 #' @export
-rray_split <- function(x, axes = NULL) {
-
-  axes <- vec_cast(axes, integer())
-  validate_axes(axes, x)
-
-  if (is_null(axes)) {
-    axes <- seq_len(rray_dim_n(x))
-  }
-
-  res <- rray__split(x, as_cpp_idx(axes))
-
-  # # Avoid copy by not calling map()
-  # # map() always copies, even if `vec_cast_container()`
-  # # does no work
-  for (i in seq_along(res)) {
-    res[[i]] <- vec_cast_container(res[[i]], x)
-  }
-
-  res
+#' @examples
+#' x <- array(1:12, c(6, 2))
+#'
+#' # Three arrays of two rows
+#' rray_split(x, axis = 1, dimensions = 2)
+#'
+#' # Arrays of one and five rows
+#' rray_split(x, axis = 1, dimensions = c(1, 5))
+#'
+#' # One array per column
+#' rray_split(x, axis = 2, dimensions = 1)
+#'
+#' # One array per column, by title
+#' y <- rray_set_titles(x, c("row", "col"))
+#' rray_split(y, axis = "col", dimensions = 1)
+#'
+#' # Arrays of dimension zero are allowed in the explicit form
+#' rray_split(x, axis = 2, dimensions = c(0, 2))
+#'
+#' # Splitting and combining along the same axis are inverses
+#' rray_combine(!!!rray_split(x, axis = 1, dimensions = 3), .axis = 1)
+rray_split <- function(x, ..., axis, dimensions) {
+  check_dots_empty0(...)
+  .Call(ffi_rray_split, x, axis, dimensions, environment())
 }

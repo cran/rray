@@ -1,0 +1,44 @@
+#ifndef RRAY_ARITHMETIC_H
+#define RRAY_ARITHMETIC_H
+
+#include "rlang.h"
+
+#include "arg.h"
+
+typedef r_obj* (*rray_binary_arithmetic_fn)(
+  r_obj* x,
+  r_obj* y,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_x_broadcast_strides,
+  const r_ssize* v_y_broadcast_strides,
+  struct r_lazy error_call
+);
+
+typedef rray_binary_arithmetic_fn (*rray_binary_arithmetic_switch_fn)(
+  r_obj* x,
+  r_obj* y,
+  struct rray_arg* x_arg,
+  struct rray_arg* y_arg,
+  struct r_lazy error_call
+);
+
+r_obj* rray_binary_arithmetic(
+  r_obj* x,
+  r_obj* y,
+  rray_binary_arithmetic_switch_fn fn_switch,
+  struct rray_arg* x_arg,
+  struct rray_arg* y_arg,
+  struct r_lazy error_call
+);
+
+r_no_return void stop_unsupported_arithmetic(
+  const char* op,
+  r_obj* x,
+  r_obj* y,
+  struct rray_arg* x_arg,
+  struct rray_arg* y_arg,
+  struct r_lazy error_call
+);
+
+#endif

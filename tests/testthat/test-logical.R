@@ -1,408 +1,149 @@
-context("test-and")
+test_that("applies logical operations elementwise", {
+  x <- array(c(TRUE, TRUE, FALSE, FALSE), c(2L, 2L))
+  y <- array(c(TRUE, FALSE, TRUE, FALSE), c(2L, 2L))
 
-test_that("can perform element-wise &", {
-  x <- rray(c(TRUE, FALSE), c(2, 2))
-
-  expect_equal(x & TRUE, x)
-  expect_equal(x & FALSE, rray(FALSE, c(2, 2)))
-
-  expect_equal(x & matrix(TRUE), x)
-
-  expect_equal(x & matrix(c(FALSE, FALSE)), rray(FALSE, c(2, 2)))
+  expect_identical(rray_and(x, y), x & y)
+  expect_identical(rray_or(x, y), x | y)
+  expect_identical(rray_xor(x, y), xor(x, y))
 })
 
-test_that("can perform & with 3D", {
-  x <- rray(c(TRUE, FALSE), c(2, 2, 2))
-  expect_equal(x & c(TRUE, FALSE), x)
+test_that("broadcasts both inputs to common dimensions", {
+  x <- array(c(TRUE, FALSE, NA), c(3L, 1L))
+  y <- array(c(TRUE, FALSE), c(1L, 2L))
+
+  expected_x <- x[, rep(1L, 2L), drop = FALSE]
+  expected_y <- y[rep(1L, 3L), , drop = FALSE]
+
+  expect_identical(rray_and(x, y), expected_x & expected_y)
+  expect_identical(rray_or(x, y), expected_x | expected_y)
+  expect_identical(rray_xor(x, y), xor(expected_x, expected_y))
 })
 
-test_that("& works with base R", {
-  x <- new_matrix(TRUE, c(2, 2))
-  expect_equal(rray_logical_and(x, FALSE), new_matrix(FALSE, c(2, 2)))
-})
-
-test_that("& works with non-logicals", {
-  x <- rray(c(1L, 0L))
-
-  expect_equal(x & 1L, rray(c(TRUE, FALSE)))
-  expect_equal(x & 0L, rray(FALSE, 2))
-
-  expect_equal(x & 1, rray(c(TRUE, FALSE)))
-  expect_equal(x & 0, rray(FALSE, 2))
-})
-
-# TODO Is this right?
-test_that("`NULL` logical op is an error", {
-  expect_error(rray(TRUE) & NULL, class = "vctrs_error_incompatible_op")
-})
-
-test_that("& works with 0-length input", {
-  expect_equal(rray_logical_and(logical(), logical()), new_array(logical()))
-
-  expect_equal(rray_logical_and(1L, integer()), new_array(logical()))
-
-  # common dim is kept
-  x <- matrix(logical(), nrow = 0, ncol = 2)
-  y <- matrix(TRUE, nrow = 1, ncol = 1)
-  expect_equal(rray_logical_and(x, y), new_array(logical(), c(0, 2)))
-
-  # common dim is kept
-  x <- array(logical(), c(2, 1, 0))
-  y <- array(logical(), c(1, 0, 1))
-  expect_equal(rray_logical_and(x, y), new_array(logical(), c(2, 0, 0)))
-})
-
-test_that("& errors gracefully on bad broadcast", {
-  x <- rray(c(TRUE, FALSE))
-  y <- rray(c(TRUE, FALSE, TRUE))
-  expect_error(x & y, "\\(2\\) and \\(3\\)")
-})
-
-test_that("& fails when input that can't be cast to logical", {
-  x <- rray(1:2)
-  expect_error(x & 1, "`x` <integer> to `to` <logical>", class = "vctrs_error_cast_lossy")
-})
-
-test_that("& fails with non-broadcastable 0-length input", {
-  x <- rray(c(TRUE, FALSE))
-  expect_error(x & logical(), "\\(2\\) and \\(0\\)")
-})
-
-test_that("Correct error is thrown with base R types", {
-  expect_error(
-    rray_logical_and(matrix(logical(), 0, 2), matrix(logical(), 0, 3)),
-    "\\(0, 2\\) and \\(0, 3\\)"
+test_that("works with 1D and 3D arrays", {
+  expect_identical(
+    rray_and(c(TRUE, FALSE, NA), TRUE),
+    array(c(TRUE, FALSE, NA), 3L)
   )
+
+  x <- array(c(TRUE, FALSE, NA), c(2L, 3L, 4L))
+  y <- array(c(FALSE, TRUE), c(2L, 1L, 1L))
+  expected_y <- y[, rep(1L, 3L), rep(1L, 4L), drop = FALSE]
+
+  expect_identical(rray_or(x, y), x | expected_y)
 })
 
-# ------------------------------------------------------------------------------
-
-context("test-or")
-
-test_that("can perform element-wise |", {
-  x <- rray(c(TRUE, FALSE), c(2, 2))
-
-  expect_equal(x | TRUE, rray(TRUE, c(2, 2)))
-  expect_equal(x | FALSE, x)
-
-  expect_equal(x | matrix(TRUE), rray(TRUE, c(2, 2)))
-
-  expect_equal(x | matrix(c(FALSE, FALSE)), x)
+test_that("returns logical output for logical input only", {
+  expect_snapshot(native_ptype_matrix(rray_and, c("x", "y")))
 })
 
-test_that("can perform | with 3D", {
-  x <- rray(c(TRUE, FALSE), c(2, 2, 2))
-  expect_equal(x | c(FALSE, TRUE), rray(TRUE, c(2, 2, 2)))
+test_that("missing values match base R", {
+  values <- c(NA, FALSE, TRUE)
+  x <- rep(values, each = length(values))
+  y <- rep(values, times = length(values))
+
+  expect_identical(as.vector(rray_and(x, y)), x & y)
+  expect_identical(as.vector(rray_or(x, y)), x | y)
+  expect_identical(as.vector(rray_xor(x, y)), xor(x, y))
 })
 
-test_that("| works with base R", {
-  x <- new_matrix(TRUE, c(2, 2))
-  expect_equal(rray_logical_or(x, FALSE), x)
-})
-
-test_that("| works with non-logicals", {
-  x <- rray(c(1L, 0L))
-
-  expect_equal(x | 1L, rray(c(TRUE, TRUE)))
-  expect_equal(x | 0L, rray(c(TRUE, FALSE)))
-
-  expect_equal(x | 1, rray(c(TRUE, TRUE)))
-  expect_equal(x | 0, rray(c(TRUE, FALSE)))
-})
-
-# TODO Is this right?
-test_that("`NULL` logical op is an error", {
-  expect_error(rray(TRUE) | NULL, class = "vctrs_error_incompatible_op")
-})
-
-test_that("| works with 0-length input", {
-  expect_equal(rray_logical_or(logical(), logical()), new_array(logical()))
-
-  expect_equal(rray_logical_or(1L, integer()), new_array(logical()))
-
-  # common dim is kept
-  x <- matrix(logical(), nrow = 0, ncol = 2)
-  y <- matrix(TRUE, nrow = 1, ncol = 1)
-  expect_equal(rray_logical_or(x, y), new_array(logical(), c(0, 2)))
-
-  # common dim is kept
-  x <- array(logical(), c(2, 1, 0))
-  y <- array(logical(), c(1, 0, 1))
-  expect_equal(rray_logical_or(x, y), new_array(logical(), c(2, 0, 0)))
-})
-
-test_that("| errors gracefully on bad broadcast", {
-  x <- rray(c(TRUE, FALSE))
-  y <- rray(c(TRUE, FALSE, TRUE))
-  expect_error(x | y, "\\(2\\) and \\(3\\)")
-})
-
-test_that("| fails when input that can't be cast to logical", {
-  x <- rray(1:2)
-  expect_error(x | 1, "`x` <integer> to `to` <logical>", class = "vctrs_error_cast_lossy")
-})
-
-test_that("| fails with non-broadcastable 0-length input", {
-  x <- rray(c(TRUE, FALSE))
-  expect_error(x | logical(), "\\(2\\) and \\(0\\)")
-})
-
-# ------------------------------------------------------------------------------
-
-context("test-not")
-
-test_that("can perform element-wise !", {
-  x <- rray(c(TRUE, FALSE), c(2, 2))
-  expect_equal(!x, rray(c(FALSE, TRUE), c(2, 2)))
-})
-
-test_that("can perform ! with 3D", {
-  x <- rray(c(TRUE, FALSE), c(2, 2, 2))
-  expect_equal(!x, rray(c(FALSE, TRUE), c(2, 2, 2)))
-})
-
-test_that("! works with base R", {
-  x <- new_matrix(TRUE, c(2, 2))
-  expect_equal(rray_logical_not(x), new_matrix(FALSE, c(2, 2)))
-})
-
-test_that("! works with non-logicals", {
-  x <- rray(c(1L, 0L))
-  expect_equal(!x, rray(c(FALSE, TRUE)))
-})
-
-# treated as logical(0)
-test_that("! works with NULL input", {
-  expect_equal(rray_logical_not(NULL), logical())
-})
-
-test_that("dim names are kept with !", {
-  x <- rray(c(TRUE, FALSE), c(2, 2), dim_names = list(c("r1", "r2"), c("c1", "c2")))
-  expect_equal(rray_dim_names(!x), rray_dim_names(x))
-})
-
-test_that("! works with 0-length input", {
-  expect_equal(rray_logical_not(logical()), new_array(logical()))
-  expect_equal(rray_logical_not(integer()), new_array(logical()))
-})
-
-test_that("! fails when input that can't be cast to logical", {
-  x <- rray(1:2)
-  expect_error(!x, "`x` <integer> to `to` <logical>", class = "vctrs_error_cast_lossy")
-})
-
-# ------------------------------------------------------------------------------
-
-context("test-any")
-
-test_that("works with rray objects", {
-
-  x <- rray(c(TRUE, FALSE), c(2, 2, 2))
-
-  expect_equal(rray_any(x), rray(TRUE, c(1, 1, 1)))
-
-  expect_equal(rray_any(x, 1), rray(TRUE, c(1, 2, 2)))
-
-  expect_equal(rray_any(x, 2), rray(c(TRUE, FALSE, TRUE, FALSE), c(2, 1, 2)))
-
-  expect_equal(rray_any(x, 3), rray(c(TRUE, FALSE, TRUE, FALSE), c(2, 2, 1)))
-})
-
-test_that("works over multiple axes", {
-  x <- rray(c(TRUE, FALSE), c(2, 2, 2))
-
-  expect_equal(rray_any(x, c(1, 2)), rray(TRUE, c(1, 1, 2)))
-
-  expect_equal(rray_any(x, c(2, 3)), rray(c(TRUE, FALSE), c(2, 1, 1)))
-
-  expect_equal(rray_any(x, c(1, 3)), rray(c(TRUE, TRUE), c(1, 2, 1)))
-
-  expect_error(rray_any(x, c(2, 1)), "Reducing axes should be sorted", class = "std::runtime_error")
-})
-
-test_that("works with base R", {
-  expect_equal(rray_any(rep(TRUE, 5)), new_array(TRUE))
-  expect_equal(rray_any(rep(TRUE, 5)), rray_any(rep(TRUE, 5), axes = 1))
-})
-
-test_that("works with NULL input", {
-  expect_equal(rray_any(NULL), new_array(FALSE))
-})
-
-test_that("works with 0-length input", {
-  expect_equal(rray_any(logical()), new_array(FALSE))
-  expect_equal(rray_any(logical(), axes = 1), new_array(FALSE))
-
-  # matches numpy
-  # essentially, reducing along the 0 axis makes it a 1 in the result so it has a FALSE value
-  x <- array(logical(), c(0, 2))
-  expect_equal(rray_any(x), new_array(FALSE, c(1, 1)))
-  expect_equal(rray_any(x, 1), new_array(FALSE, c(1, 2)))
-  expect_equal(rray_any(x, 2), new_array(logical(), c(0, 1)))
-})
-
-# TODO ensure this doesnt crash R
-test_that("reducing over multiple axes where at least one is size 0", {
-  x <- array(logical(), c(0, 0, 2))
-
-  expect_equal(rray_any(x), new_array(FALSE, c(1, 1, 1)))
-
-  #rray_any(x, c(1, 2))
-  #rray_any(x, c(1, 3))
-})
-
-test_that("reducing over multiple axes works consistently", {
-  expect_equal(rray_any(matrix(FALSE, 1, 1), c(1, 2)), new_matrix(FALSE, c(1, 1)))
-  expect_equal(rray_any(matrix(FALSE, 2, 2), c(1, 2)), new_matrix(FALSE, c(1, 1)))
-  expect_equal(rray_any(matrix(FALSE, 3, 3), c(1, 2)), new_matrix(FALSE, c(1, 1)))
-})
-
-test_that("fails when can't cast to logical", {
-  expect_error(rray_any(1:5), "`x` <integer> to `to` <logical>", class = "vctrs_error_cast_lossy")
-})
-
-# ------------------------------------------------------------------------------
-
-context("test-all")
-
-test_that("works with rray objects", {
-
-  x <- rray(c(TRUE, FALSE), c(2, 2, 2))
-
-  expect_equal(rray_all(x), rray(FALSE, c(1, 1, 1)))
-
-  expect_equal(rray_all(x, 1), rray(FALSE, c(1, 2, 2)))
-
-  expect_equal(rray_all(x, 2), rray(c(TRUE, FALSE, TRUE, FALSE), c(2, 1, 2)))
-
-  expect_equal(rray_all(x, 3), rray(c(TRUE, FALSE, TRUE, FALSE), c(2, 2, 1)))
-})
-
-test_that("works over multiple axes", {
-  x <- rray(c(TRUE, FALSE), c(2, 2, 2))
-
-  expect_equal(rray_all(x, c(1, 2)), rray(FALSE, c(1, 1, 2)))
-
-  expect_equal(rray_all(x, c(2, 3)), rray(c(TRUE, FALSE), c(2, 1, 1)))
-
-  expect_equal(rray_all(x, c(1, 3)), rray(c(FALSE, FALSE), c(1, 2, 1)))
-
-  expect_error(rray_all(x, c(2, 1)), "Reducing axes should be sorted", class = "std::runtime_error")
-})
-
-test_that("works with base R", {
-  expect_equal(rray_all(rep(TRUE, 5)), new_array(TRUE))
-  expect_equal(rray_all(rep(TRUE, 5)), rray_all(rep(TRUE, 5), axes = 1))
-})
-
-test_that("works with NULL input", {
-  expect_equal(rray_all(NULL), new_array(TRUE))
-})
-
-test_that("works with 0-length input", {
-  expect_equal(rray_all(logical()), new_array(TRUE))
-  expect_equal(rray_all(logical(), axes = 1), new_array(TRUE))
-
-  # matches numpy
-  # essentially, reducing along the 0 axis makes it a 1 in the result so it has a TRUE value
-  x <- array(logical(), c(0, 2))
-  expect_equal(rray_all(x), new_array(TRUE, c(1, 1)))
-  expect_equal(rray_all(x, 1), new_array(TRUE, c(1, 2)))
-  expect_equal(rray_all(x, 2), new_array(logical(), c(0, 1)))
-})
-
-# TODO ensure this doesnt crash R
-test_that("reducing over multiple axes where at least one is size 0", {
-  x <- array(logical(), c(0, 0, 2))
-
-  expect_equal(rray_all(x), new_array(TRUE, c(1, 1, 1)))
-
-  #rray_all(x, c(1, 2))
-  #rray_all(x, c(1, 3))
-})
-
-test_that("reducing over multiple axes works consistently", {
-  expect_equal(rray_all(matrix(TRUE, 1, 1), c(1, 2)), new_matrix(TRUE, c(1, 1)))
-  expect_equal(rray_all(matrix(TRUE, 2, 2), c(1, 2)), new_matrix(TRUE, c(1, 1)))
-  expect_equal(rray_all(matrix(TRUE, 3, 3), c(1, 2)), new_matrix(TRUE, c(1, 1)))
-})
-
-test_that("fails when can't cast to logical", {
-  expect_error(rray_all(1:5), "`x` <integer> to `to` <logical>", class = "vctrs_error_cast_lossy")
-})
-
-# ------------------------------------------------------------------------------
-context("test-if_else")
-
-test_that("broadcasting works among the three inputs", {
+test_that("names are kept for axes that aren't broadcast", {
+  x <- array(
+    TRUE,
+    c(3L, 1L),
+    dimnames = list(c("r1", "r2", "r3"), "x")
+  )
+  y <- array(
+    FALSE,
+    c(1L, 2L),
+    dimnames = list("y", c("c1", "c2"))
+  )
 
   expect_identical(
-    rray_if_else(
-      c(TRUE, FALSE),
-      5,
-      rray(1:4, c(2, 2))
-    ),
-    rray(c(5, 2, 5, 4), c(2, 2))
+    rray_names(rray_and(x, y)),
+    list(c("r1", "r2", "r3"), c("c1", "c2"))
   )
+})
 
-  # 3D
+test_that("names must agree on an axis both inputs name", {
+  x <- array(c(TRUE, FALSE), 2L, dimnames = list(c("r1", "r2")))
+  y <- array(c(TRUE, TRUE), 2L, dimnames = list(c("a", "b")))
+
+  expect_identical(rray_names(rray_and(x, x)), list(c("r1", "r2")))
+
+  expect_snapshot(error = TRUE, {
+    rray_and(x, y)
+    rray_or(x, y)
+    rray_xor(x, y)
+  })
+})
+
+test_that("titles must agree on an axis", {
+  x <- array(c(TRUE, FALSE), 2L, dimnames = list(Row = c("r1", "r2")))
+  y <- array(c(TRUE, TRUE), 2L, dimnames = list(Row = NULL))
+  z <- array(c(TRUE, TRUE), 2L, dimnames = list(Sample = c("r1", "r2")))
+
+  expect_identical(rray_names(rray_and(x, y)), list(Row = c("r1", "r2")))
+
+  expect_snapshot(error = TRUE, {
+    rray_and(x, z)
+    rray_or(x, z)
+    rray_xor(x, z)
+  })
+})
+
+test_that("zero dimensions broadcast against dimensions of 1", {
+  x <- array(TRUE, c(1L, 2L))
+
+  expect_identical(rray_and(logical(), x), array(logical(), c(0L, 2L)))
   expect_identical(
-    rray_if_else(
-      rray(c(TRUE, FALSE), c(2, 2, 2)),
-      5,
-      rray(1:4, c(2, 2))
-    ),
-    rray_broadcast(rray(c(5, 2, 5, 4), c(2, 2)), c(2, 2, 2))
-  )
-
-})
-
-test_that("length 0 inputs give correct results", {
-
-  expect_equal(rray_if_else(logical(), 1, 0), new_array(numeric()))
-  expect_equal(rray_if_else(logical(), 1L, 0L), new_array(integer()))
-
-  expect_identical(
-    rray_if_else(
-      matrix(logical(), 5, 0),
-      matrix(1, 5, 1),
-      1
-    ),
-    new_matrix(numeric(), c(5, 0))
+    rray_or(x, array(logical(), c(0L, 1L, 2L))),
+    array(logical(), c(0L, 2L, 2L))
   )
 })
 
-test_that("length 0 broadcasting can fail gracefully", {
-  expect_error(
-    rray_if_else(
-      matrix(logical(), 1, 0),
-      matrix(1, 1, 5),
-      1
-    ),
-    "\\(1, 0\\) and \\(1, 5\\)"
-  )
+test_that("works with long vectors", {
+  skip_if_not_testing_long_vectors()
+
+  x <- array(FALSE, c(2^16, 2^15))
+  x[length(x)] <- TRUE
+
+  out <- rray_and(x, TRUE)
+  expect_identical(out[c(1, length(out))], c(FALSE, TRUE))
+
+  out <- rray_or(x, FALSE)
+  expect_identical(out[c(1, length(out))], c(FALSE, TRUE))
+
+  out <- rray_xor(x, TRUE)
+  expect_identical(out[c(1, length(out))], c(TRUE, FALSE))
 })
 
-test_that("broadcasting can fail gracefully", {
-  expect_error(rray_if_else(TRUE, 1:5, 1:2), "\\(5\\) and \\(2\\)")
-
-  # this isn't the best error because the failure comes after the first
-  # set of common dimensions are found, but not much we can do and it isn't
-  # _that_ bad
-  expect_error(
-    rray_if_else(c(TRUE, FALSE), matrix(1, ncol = 2), 1:3),
-    "\\(2, 2\\) and \\(3\\)"
-  )
+test_that("errors on incompatible dimensions", {
+  x <- array(TRUE, c(1L, 2L))
+  y <- array(logical(), c(1L, 0L))
+  expect_snapshot(rray_and(x, y), error = TRUE)
 })
 
-test_that("result is common type of `true` and `false` even if one isn't used", {
-  expect_identical(rray_if_else(TRUE, 1L, 2), new_array(1))
+test_that("errors on non-logical input", {
+  expect_snapshot(rray_and(1L, TRUE), error = TRUE)
+  expect_snapshot(rray_or(TRUE, c(1, 2)), error = TRUE)
+  expect_snapshot(rray_xor(array("a", c(2L, 2L)), TRUE), error = TRUE)
 })
 
-test_that("`true` and `false` must have a common type", {
-  expect_error(rray_if_else(1, factor(1), 2.5), "unknown inner type", class = "rlang_error")
+test_that("checks `x` before `y`", {
+  expect_snapshot(rray_and(1L, 1), error = TRUE)
 })
 
-test_that("`condition` must be castable to a logical", {
-  expect_error(rray_if_else(1.5, 1, 2), "`x` <double> to `to` <logical>", class = "vctrs_error_cast_lossy")
+test_that("a type error beats a dimension error", {
+  x <- array(1L, c(2L, 2L))
+  y <- array(TRUE, c(3L, 3L))
+  expect_snapshot(rray_and(x, y), error = TRUE)
+})
+
+test_that("errors on scalar and classed input", {
+  expect_snapshot(rray_and(NULL, TRUE), error = TRUE)
+  expect_snapshot(rray_or(TRUE, NULL), error = TRUE)
+
+  x <- structure(TRUE, class = "foo")
+  expect_snapshot(rray_xor(x, TRUE), error = TRUE)
+  expect_snapshot(rray_and(TRUE, x), error = TRUE)
 })

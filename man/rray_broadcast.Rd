@@ -2,73 +2,35 @@
 % Please edit documentation in R/broadcast.R
 \name{rray_broadcast}
 \alias{rray_broadcast}
-\title{Broadcast to a new dimension}
+\title{Broadcast an array to new dimensions}
 \usage{
-rray_broadcast(x, dim)
+rray_broadcast(x, dimensions)
 }
 \arguments{
-\item{x}{The object to broadcast.}
+\item{x}{An array.}
 
-\item{dim}{An integer vector. The dimension to broadcast to.}
+\item{dimensions}{An integer vector of target dimensions.}
 }
 \value{
-\code{x} broadcast to the new dimensions.
+An array with dimensions of \code{dimensions}.
 }
 \description{
-\code{rray_broadcast()} will \emph{broadcast} the dimensions of the current
-object to a new dimension.
-}
-\details{
-Broadcasting works by \emph{recycling dimensions} and \emph{repeating values} in
-those dimensions to match the new dimension.
+\code{rray_broadcast()} broadcasts an array to a new set of dimensions using
+tidyverse recycling rules. Each dimension of \code{x} must either match the
+corresponding target dimension or be 1, in which case it is repeated to fill
+the target.
 
-Here's an example. Assume you have a 1x3 matrix that you want to broadcast
-to a dimension of 2x3. Since the 1st dimensions are different, and one of them
-is 1, the 1 row of the 1x3 matrix is repeated to become a 2x3 matrix. For
-the second dimension, both are already 3 so nothing is done.\preformatted{(1, 3)
-(2, 3)
-------
-(2, 3)
-}
-
-As an example that \emph{doesn't} broadcast, here is an attempt to make a
-2x1x4 matrix broadcast to a 2x3x5 matrix (In the R world, 2x3x4 means
-a 2 row, 3 column, and 4 "deep" array). The first 2 dimensions are fine,
-but for the third dimension, 4 and 5 are not "recyclable" and are therefore
-incompatible.\preformatted{(2, 1, 4)
-(2, 3, 5)
----------
-(2, 3, X)
-}
-
-You can broadcast to higher dimensions too. If you go from a 5x2 to a
-5x2x3 array, then the 5x2 matrix implicitly gets a 1 appended as another
-dimension (i.e. 5x2x1)\preformatted{(5, 2,  ) <- implicit 1 is recycled
-(5, 2, 3)
----------
-(5, 2, 3)
-}
-
-Broadcasting is an important concept in rray, as it is the engine behind
-the different structure for arithmetic operations.
+Dimensionality can be expanded by supplying \code{dimensions} with greater
+dimensionality than \code{x} has. For example, a 2x3 array can be broadcast to a
+2x3x4 array.
 }
 \examples{
+# Broadcast a vector to a matrix
+rray_broadcast(1:3, c(3L, 2L))
 
-# From 5x1 ...
-x <- rray(1:5)
+# Broadcast a row to fill a matrix
+rray_broadcast(array(1:2, c(1L, 2L)), c(3L, 2L))
 
-# ...to 5x2
-rray_broadcast(x, c(5, 2))
-
-# Internally, rray() uses broadcasting
-# for convenience so you could have also
-# done this with:
-rray(1:5, dim = c(5, 2))
-
-# Moar dimensions
-rray_broadcast(x, c(5, 2, 3))
-
-# You cannot broadcast down in dimensions
-try(rray_broadcast(x, 5))
-
+# Add a new dimension
+rray_broadcast(array(1:6, c(2L, 3L)), c(2L, 3L, 4L))
 }

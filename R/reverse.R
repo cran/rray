@@ -1,0 +1,41 @@
+#' Reverse elements along axes
+#'
+#' `rray_reverse()` reverses the order of the elements of `x` along one or more
+#' `axes`.
+#'
+#' @details
+#' Names on a reversed axis move with the data. Every other axis keeps its names
+#' untouched. The titles of `x` are kept.
+#'
+#' @inheritParams rlang::args_dots_empty
+#'
+#' @param x An array.
+#'
+#' @param axes The axes to reverse along, given
+#'   [by position or by title][faq-axes].
+#'
+#' @returns
+#' An array with the same type and dimensions as `x`.
+#'
+#' @export
+#' @examples
+#' rray_reverse(1:5, axes = 1)
+#'
+#' x <- matrix(1:6, nrow = 2, dimnames = list(c("r1", "r2"), c("a", "b", "c")))
+#'
+#' # Reverse the rows, names move with the data
+#' rray_reverse(x, axes = 1)
+#'
+#' # Reverse the columns
+#' rray_reverse(x, axes = 2)
+#'
+#' # Reverse both axes
+#' rray_reverse(x, axes = c(1, 2))
+#'
+#' # Reverse the columns, by title
+#' y <- rray_set_titles(x, c("row", "col"))
+#' rray_reverse(y, axes = "col")
+rray_reverse <- function(x, ..., axes) {
+  check_dots_empty0(...)
+  .Call(ffi_rray_reverse, x, axes, environment())
+}

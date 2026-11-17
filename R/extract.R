@@ -1,54 +1,85 @@
-#' Get or set elements of an array by index
+#' Extract values from an array
 #'
-#' `rray_extract()` is the counterpart to [rray_yank()]. It extracts elements
-#' from an array _by index_. It _always_ drops dimensions
-#' (unlike [rray_subset()]), and a 1D object is always returned.
+#' @description
+#' `rray_extract()` selects values from `x` by 1D location or by coordinate
+#' point. The result is always a 1D array.
 #'
-#' @inheritParams rray_subset
-#'
-#' @param value The value to assign to the location specified by `...`.
-#' Before assignment, `value` is cast to the type and dimension of `x` after
-#' extracting elements with `...`.
+#' `rray_extract_assign()` replaces the selected values with `value` and returns
+#' a modified copy of `x`.
 #'
 #' @details
+#' The type and shape of `i` decide how it is used:
 #'
-#' Like `[[`, `rray_extract()` will _never_ keep dimension names.
+#' - An integer or double vector holds 1D locations. `x` is treated as its
+#'   equivalent flattened array, so location `4` in a 2 x 3 matrix is row 2,
+#'   column 2. Locations follow the usual R rules: negative values drop
+#'   elements, zero is ignored, duplicates repeat elements, and `NA` gives a
+#'   missing value.
 #'
-#' `rray_extract()` works with base R objects as well.
+#' - A logical vector must be size 1 or the size of `x`. A logical array must
+#'   have the same dimensions as `x`, so `rray_extract(x, x > 5)` works. When
+#'   `TRUE`, the corresponding value in `x` is returned.
 #'
-#' `rray_extract()` is similar to the traditional behavior of
-#' `x[[i, j, ...]]`, but allows each subscript to have length >1.
+#' - An integer or double matrix holds coordinate points. Each row selects one
+#'   element, and there must be one column per axis of `x`. Coordinates must be
+#'   positive and within the dimension of their axis. `NA` at any position
+#'   within the row generates a missing value.
 #'
-#' @return
+#' For raw arrays the missing value is `as.raw(0)`, and for list arrays it is
+#' `NULL`.
 #'
-#' A 1D vector of elements extracted from `x`.
+#' For assignment, a missing entry in `i` leaves `x` unchanged at that
+#' position but uses one element of `value`. This also applies to a point row
+#' with a missing coordinate. Zero locations use no element of `value`.
+#' Negative locations can't be combined with missing values.
 #'
-#' @examples
-#' x <- rray(1:16, c(2, 4, 2), dim_names = list(c("r1", "r2"), NULL, NULL))
+#' @param x An array.
 #'
-#' # Extract the first row and flatten it
-#' rray_extract(x, 1)
+#' @param i A numeric vector of locations, a logical vector, a logical array
+#'   with the same dimensions as `x`, or a numeric matrix of coordinate points.
 #'
-#' # Extract the first row and first two columns
-#' rray_extract(x, 1, 1:2)
+#' @param value A 1D array to assign to the selected values. It is cast to the
+#'   type of `x`, then broadcast to the number of selected or missing
+#'   positions. It must be size 1 or have one element per position.
 #'
-#' # You can assign directly to these elements
-#' rray_extract(x, 1, 1:2) <- NA
-#' x
+#' @returns
+#' - `rray_extract()` returns a one-dimensional array. Names are always dropped.
 #'
-#' @family rray subsetters
+#' - `rray_extract_assign()` returns `x` with the selected values replaced. The
+#'   type, dimensions, and names of `x` are kept.
+#'
 #' @export
-rray_extract <- function(x, ...) {
-  rray_extract_impl(x, ...)
+#' @examples
+#' x <- array(1:24, c(2L, 3L, 4L))
+#'
+#' # 1D locations
+#' rray_extract(x, c(1, 4, 24))
+#'
+#' # Negative locations drop elements
+#' rray_extract(x, -(1:20))
+#'
+#' # A logical mask with the same dimensions as `x`
+#' rray_extract(x, x %% 5 == 0)
+#'
+#' # One row per point, one column per axis
+#' points <- rbind(
+#'   c(1, 1, 1),
+#'   c(2, 3, 4),
+#'   c(1, 2, 3)
+#' )
+#' rray_extract(x, points)
+#'
+#' # Assign one value to every selected element
+#' rray_extract_assign(x, x %% 5 == 0, 0L)
+#'
+#' # Or one value per selected element
+#' rray_extract_assign(x, points, c(100L, 200L, 300L))
+rray_extract <- function(x, i) {
+  .Call(ffi_rray_extract, x, i, environment())
 }
 
-rray_extract_impl <- function(x, ...) {
-  indexer <- rray_as_index(x, ...)
-
-  # TODO
-  if (is_any_na_int(indexer)) {
-    abort("`NA` indices are not yet supported.")
-  }
-
-  rray__extract(x, indexer)
+#' @rdname rray_extract
+#' @export
+rray_extract_assign <- function(x, i, value) {
+  .Call(ffi_rray_extract_assign, x, i, value, environment())
 }

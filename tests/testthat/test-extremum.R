@@ -1,53 +1,195 @@
-# ------------------------------------------------------------------------------
-context("test-maximum")
+test_that("computes parallel maxima and minima", {
+  x <- array(1:6, c(3L, 2L))
+  y <- array(6:1, c(3L, 2L))
 
-test_that("basics", {
-  expect_identical(rray_maximum(1, 2), new_array(2))
-  expect_identical(rray_maximum(1L, 2L), new_array(2L))
+  expect_identical(rray_pmax(x, y), array(c(6L, 5L, 4L, 4L, 5L, 6L), dim(x)))
+  expect_identical(rray_pmin(x, y), array(c(1L, 2L, 3L, 3L, 2L, 1L), dim(x)))
 })
 
-test_that("broadcasting works", {
-  x <- matrix(1:2)
-  expect_equal(rray_maximum(x, t(x)), new_matrix(c(1, 2, 2, 2), c(2, 2)))
-})
+test_that("broadcasts both inputs to common dimensions", {
+  x <- array(1:3, c(3L, 1L))
+  y <- array(c(2L, 4L), c(1L, 2L))
 
-test_that("works with 3D", {
-  x <- array(1:2, c(2, 1, 2))
-  y <- matrix(2:1)
-  expect_equal(rray_maximum(x, y), new_array(2, c(2, 1, 2)))
-})
-
-test_that("dimension names are kept", {
-  x <- rray(c(0, 0), c(2, 1), list(c("r1", "r2"), "c1"))
-  expect_equal(
-    rray_maximum(x, 1),
-    rray(c(1, 1), c(2, 1), list(c("r1", "r2"), "c1"))
+  expect_identical(
+    rray_pmax(x, y),
+    array(c(2L, 2L, 3L, 4L, 4L, 4L), c(3L, 2L))
+  )
+  expect_identical(
+    rray_pmin(x, y),
+    array(c(1L, 2L, 2L, 1L, 2L, 3L), c(3L, 2L))
   )
 })
 
-# ------------------------------------------------------------------------------
-context("test-minimum")
-
-test_that("basics", {
-  expect_identical(rray_minimum(1, 2), new_array(1))
-  expect_identical(rray_minimum(1L, 2L), new_array(1L))
+test_that("plain vectors are normalized to 1D arrays", {
+  expect_identical(rray_pmax(1:3, 2L), array(c(2L, 2L, 3L), 3L))
+  expect_identical(rray_pmin(1:3, 2L), array(c(1L, 2L, 2L), 3L))
 })
 
-test_that("broadcasting works", {
-  x <- matrix(1:2)
-  expect_equal(rray_minimum(x, t(x)), new_matrix(c(1, 1, 1, 2), c(2, 2)))
+test_that("the output type of every pair of native types", {
+  expect_snapshot(native_ptype_matrix(rray_pmax, c("x", "y")))
+  expect_snapshot(native_ptype_matrix(rray_pmin, c("x", "y")))
 })
 
-test_that("works with 3D", {
-  x <- array(1:2, c(2, 1, 2))
-  y <- matrix(2:1)
-  expect_equal(rray_minimum(x, y), new_array(1, c(2, 1, 2)))
+test_that("logical inputs stay logical", {
+  expect_identical(rray_pmax(TRUE, FALSE), array(TRUE, 1L))
+  expect_identical(rray_pmin(TRUE, FALSE), array(FALSE, 1L))
 })
 
-test_that("dimension names are kept", {
-  x <- rray(c(0, 0), c(2, 1), list(c("r1", "r2"), "c1"))
-  expect_equal(
-    rray_minimum(x, 1),
-    rray(c(0, 0), c(2, 1), list(c("r1", "r2"), "c1"))
+test_that("integer wins over logical, in either position", {
+  expect_identical(rray_pmax(TRUE, 2L), array(2L, 1L))
+  expect_identical(rray_pmax(2L, TRUE), array(2L, 1L))
+  expect_identical(rray_pmin(TRUE, 2L), array(1L, 1L))
+  expect_identical(rray_pmin(2L, TRUE), array(1L, 1L))
+})
+
+test_that("double wins over logical and integer, in either position", {
+  expect_identical(rray_pmax(TRUE, 2.5), array(2.5, 1L))
+  expect_identical(rray_pmax(2.5, TRUE), array(2.5, 1L))
+  expect_identical(rray_pmin(1L, 2.5), array(1, 1L))
+  expect_identical(rray_pmin(2.5, 1L), array(1, 1L))
+})
+
+test_that("`NA` wins over `NaN`, unlike `pmax()` and `pmin()`", {
+  # We do this to instead match rray_max() and rray_min() and allow them to
+  # share one core C helper
+  for (na_rm in c(FALSE, TRUE)) {
+    expect_identical(rray_pmax(NA, NaN, na_rm = na_rm), array(NA_real_, 1L))
+    expect_identical(rray_pmax(NaN, NA, na_rm = na_rm), array(NA_real_, 1L))
+    expect_identical(rray_pmin(NA, NaN, na_rm = na_rm), array(NA_real_, 1L))
+    expect_identical(rray_pmin(NaN, NA, na_rm = na_rm), array(NA_real_, 1L))
+  }
+})
+
+test_that("native extrema match base R across special values", {
+  logical_values <- c(NA, FALSE, TRUE)
+  integer_values <- c(NA_integer_, -1L, 0L, 1L)
+  double_values <- c(NA_real_, NaN, -Inf, -1, -0, 0, 1, Inf)
+
+  make_case <- function(x_values, y_values = x_values, cast = identity) {
+    list(
+      x = rep(x_values, each = length(y_values)),
+      y = rep(y_values, times = length(x_values)),
+      cast = cast
+    )
+  }
+
+  cases <- list(
+    logical = make_case(logical_values, cast = as.logical),
+    logical_integer = make_case(logical_values, integer_values),
+    integer_logical = make_case(integer_values, logical_values),
+    logical_double = make_case(logical_values, double_values),
+    double_logical = make_case(double_values, logical_values),
+    integer = make_case(integer_values),
+    double = make_case(double_values),
+    integer_double = make_case(integer_values, double_values),
+    double_integer = make_case(double_values, integer_values)
   )
+
+  for (case in cases) {
+    for (na_rm in c(FALSE, TRUE)) {
+      expect_identical(
+        as.vector(rray_pmax(case$x, case$y, na_rm = na_rm)),
+        case$cast(na_wins(pmax(case$x, case$y, na.rm = na_rm), case$x, case$y))
+      )
+      expect_identical(
+        as.vector(rray_pmin(case$x, case$y, na_rm = na_rm)),
+        case$cast(na_wins(pmin(case$x, case$y, na.rm = na_rm), case$x, case$y))
+      )
+    }
+  }
+})
+
+test_that("names are coalesced across inputs", {
+  x <- array(1:3, c(3L, 1L), dimnames = list(c("r1", "r2", "r3"), NULL))
+  y <- array(1:2, c(1L, 2L), dimnames = list(NULL, c("c1", "c2")))
+
+  expect_identical(
+    rray_names(rray_pmax(x, y)),
+    list(c("r1", "r2", "r3"), c("c1", "c2"))
+  )
+  expect_identical(
+    rray_names(rray_pmin(x, y)),
+    list(c("r1", "r2", "r3"), c("c1", "c2"))
+  )
+})
+
+test_that("names must agree on an axis both inputs name", {
+  x <- array(1:3, 3L, dimnames = list(c("a", "b", "c")))
+  y <- array(1:3, 3L, dimnames = list(c("x", "y", "z")))
+
+  expect_identical(rray_names(rray_pmax(x, x)), list(c("a", "b", "c")))
+
+  expect_snapshot(error = TRUE, {
+    rray_pmax(x, y)
+    rray_pmin(x, y)
+  })
+})
+
+test_that("titles must agree on an axis", {
+  x <- array(1:2, 2L, dimnames = list(Row = c("r1", "r2")))
+  y <- array(1:2, 2L, dimnames = list(Row = NULL))
+  z <- array(1:2, 2L, dimnames = list(Sample = c("r1", "r2")))
+
+  expect_identical(rray_names(rray_pmax(x, y)), list(Row = c("r1", "r2")))
+
+  expect_snapshot(error = TRUE, {
+    rray_pmax(x, z)
+    rray_pmin(x, z)
+  })
+})
+
+test_that("zero dimensions broadcast against dimensions of 1", {
+  x <- array(1L, c(1L, 2L))
+  y <- array(integer(), c(0L, 2L))
+
+  expect_identical(rray_pmax(x, y), y)
+  expect_identical(rray_pmin(x, y), y)
+})
+
+test_that("works with long vectors", {
+  skip_if_not_testing_long_vectors()
+
+  x <- array(FALSE, c(2^16, 2^15))
+  x[length(x)] <- TRUE
+
+  out <- rray_pmax(x, 0L)
+  expect_identical(out[c(1, length(out))], c(0L, 1L))
+
+  out <- rray_pmin(x, 1L)
+  expect_identical(out[c(1, length(out))], c(0L, 1L))
+})
+
+test_that("errors on incompatible dimensions", {
+  x <- array(1:6, c(3L, 2L))
+  y <- array(1L, c(2L, 2L))
+
+  expect_snapshot(rray_pmax(x, y), error = TRUE)
+  expect_snapshot(rray_pmin(x, y), error = TRUE)
+})
+
+test_that("errors on unsupported types", {
+  expect_snapshot(rray_pmax(1i, 2i), error = TRUE)
+  expect_snapshot(rray_pmin(1i, 2i), error = TRUE)
+  expect_snapshot(rray_pmax("a", "b"), error = TRUE)
+  expect_snapshot(rray_pmin(as.raw(1), as.raw(2)), error = TRUE)
+  expect_snapshot(rray_pmax(list(1), list(2)), error = TRUE)
+})
+
+test_that("`na_rm` must be `TRUE` or `FALSE`", {
+  expect_snapshot(rray_pmax(1L, 2L, na_rm = NA), error = TRUE)
+  expect_snapshot(rray_pmin(1L, 2L, na_rm = 1), error = TRUE)
+})
+
+test_that("dots must be empty", {
+  expect_snapshot(rray_pmax(1L, 2L, 3L), error = TRUE)
+  expect_snapshot(rray_pmin(1L, 2L, 3L), error = TRUE)
+})
+
+test_that("errors on scalar and classed input", {
+  expect_snapshot(rray_pmax(NULL, 1L), error = TRUE)
+  expect_snapshot(rray_pmin(1L, NULL), error = TRUE)
+
+  x <- structure(1L, class = "foo")
+  expect_snapshot(rray_pmax(x, 1L), error = TRUE)
+  expect_snapshot(rray_pmin(1L, x), error = TRUE)
 })

@@ -1,39 +1,61 @@
-#' Maximum and minimum values
+#' Elementwise maximum and minimum
 #'
 #' @description
+#' - `rray_pmax()` computes the elementwise maximum of two arrays.
 #'
-#' `rray_maximum()` and `rray_minimum()` compute the elementwise max / min
-#' between `x` and `y`.
+#' - `rray_pmin()` computes the elementwise minimum of two arrays.
 #'
-#' @param x,y A vector, matrix, array or rray.
+#' @details
+#' The arrays are broadcast to common dimensions first, so they do not have to
+#' be the same shape.
 #'
-#' @return
+#' When `NA` and `NaN` are both present, `NA` wins, like [rray_max()],
+#' [rray_min()], [max()], and [min()]. This differs from [pmax()] and [pmin()],
+#' which return whichever comes last:
 #'
-#' The elementwise max/min of `x` and `y`, with broadcasting.
+#' ```r
+#' rray_pmax(NA, NaN) # NA
+#' rray_pmax(NaN, NA) # NA
 #'
+#' pmax(NA, NaN) # NaN
+#' ```
+#'
+#' These functions participate in rray's
+#' [common name determination rules][faq-common-names].
+#'
+#' @inheritParams rlang::args_dots_empty
+#'
+#' @param x An array.
+#'
+#' @param y An array.
+#'
+#' @param na_rm If `TRUE`, missing values are removed before taking the maximum
+#'   or minimum.
+#'
+#' @returns
+#' An array with the common dimensions and common type of `x` and `y`.
+#'
+#' @name rray-extremum
 #' @examples
-#' # Elementwise maximum
-#' rray_maximum(c(1, 2, 3), c(3, 2, 1))
+#' x <- array(1:6, c(3L, 2L))
 #'
-#' # Elementwise minimum
-#' rray_minimum(c(1, 2, 3), c(3, 2, 1))
+#' rray_pmax(x, 4L)
+#' rray_pmin(x, 4L)
 #'
-#' # With broadcasting
-#' x <- matrix(1:3)
-#' rray_maximum(x, t(x))
-#'
-#' @name extremum
+#' # Compare each column with a different value through broadcasting
+#' rray_pmax(x, array(c(2L, 5L), c(1L, 2L)))
+NULL
+
+#' @rdname rray-extremum
 #' @export
-rray_maximum <- function(x, y) {
-  out <- rray__maximum(x, y)
-  container <- vec_ptype_container2(x, y)
-  vec_cast_container(out, container)
+rray_pmax <- function(x, y, ..., na_rm = FALSE) {
+  check_dots_empty0(...)
+  .Call(ffi_rray_pmax, x, y, na_rm, environment())
 }
 
-#' @rdname extremum
+#' @rdname rray-extremum
 #' @export
-rray_minimum <- function(x, y) {
-  out <- rray__minimum(x, y)
-  container <- vec_ptype_container2(x, y)
-  vec_cast_container(out, container)
+rray_pmin <- function(x, y, ..., na_rm = FALSE) {
+  check_dots_empty0(...)
+  .Call(ffi_rray_pmin, x, y, na_rm, environment())
 }

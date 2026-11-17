@@ -1,0 +1,727 @@
+#include "reduce-mean.h"
+
+#include <stdint.h>
+
+#include "int-128.h"
+#include "reduce.h"
+#include "type.h"
+#include "utils.h"
+
+#include "decl/reduce-mean-decl.h"
+
+// Max count is 2^32. Each integer is at most about 2^31 in size, so 2^32 of
+// them add up to at most 2^63, which still fits in `int64_t`. If more than 2^32
+// inputs make up a single slot in the output there is a risk of overflow (from
+// reducing over two 2^16+1 length axes, all INT_MAX). `rray_mean_int()`
+// switches to `rray_mean_int_fallback()`, which sums into our own minimal
+// `int128_t` instead, which is slower but won't overflow.
+#define RRAY_MEAN_INT64_MAX_COUNT ((r_ssize) 1 << 32)
+
+// For anything outside the bounds of this number, casting from `int64_t` to
+// `double` may do inexact rounding. If the `sum` exceeds this bound, we split
+// its division by `count` into an exact integer division plus a possibly lossy
+// (but much less so!) double division of the remainder by `count`, which
+// greatly limits the overall error.
+#define RRAY_MEAN_INT64_MAX_EXACT ((int64_t) 1 << 53)
+
+r_obj* ffi_rray_mean(
+  r_obj* ffi_x,
+  r_obj* ffi_axes,
+  r_obj* ffi_na_rm,
+  r_obj* ffi_frame
+) {
+  struct r_lazy error_call = {.x = ffi_frame, .env = r_null};
+  const bool na_rm = r_arg_as_bool(ffi_na_rm, "na_rm");
+  return rray_mean(ffi_x, ffi_axes, na_rm, rray_args.x, error_call);
+}
+
+r_obj* rray_mean(
+  r_obj* x,
+  r_obj* axes,
+  bool na_rm,
+  struct rray_arg* arg,
+  struct r_lazy error_call
+) {
+  return rray_reduce(x, axes, na_rm, rray_mean_switch, arg, error_call);
+}
+
+static rray_reduce_fn rray_mean_switch(
+  r_obj* x,
+  struct rray_arg* arg,
+  struct r_lazy error_call
+) {
+  switch (rray_typeof(x)) {
+  case RRAY_TYPE_logical:
+    return rray_mean_lgl;
+  case RRAY_TYPE_integer:
+    return rray_mean_int;
+  case RRAY_TYPE_double:
+    return rray_mean_dbl;
+
+  case RRAY_TYPE_complex:
+  case RRAY_TYPE_character:
+  case RRAY_TYPE_raw:
+  case RRAY_TYPE_list:
+    stop_unsupported_reduce("mean", x, arg, error_call);
+
+  case RRAY_TYPE_scalar:
+    stop_scalar_input(x, arg, error_call);
+  }
+
+  r_stop_unreachable();
+}
+
+static r_obj* rray_mean_lgl(
+  r_obj* x,
+  bool na_rm,
+  r_ssize out_size,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_out_broadcast_strides,
+  struct r_lazy error_call
+) {
+  const int* v_x = r_lgl_cbegin(x);
+  const r_ssize x_size = r_length(x);
+  const r_ssize count = rray_reduce_count(x_size, out_size);
+
+  return rray_mean_lgl_or_int(
+    v_x,
+    r_globals.na_lgl,
+    na_rm,
+    out_size,
+    count,
+    v_dimensions,
+    dimensionality,
+    v_out_broadcast_strides
+  );
+}
+
+static r_obj* rray_mean_int(
+  r_obj* x,
+  bool na_rm,
+  r_ssize out_size,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_out_broadcast_strides,
+  struct r_lazy error_call
+) {
+  const int* v_x = r_int_cbegin(x);
+  const r_ssize x_size = r_length(x);
+  const r_ssize count = rray_reduce_count(x_size, out_size);
+
+  if (count > RRAY_MEAN_INT64_MAX_COUNT) {
+    return rray_mean_int_fallback(
+      v_x,
+      na_rm,
+      out_size,
+      count,
+      v_dimensions,
+      dimensionality,
+      v_out_broadcast_strides
+    );
+  }
+
+  return rray_mean_lgl_or_int(
+    v_x,
+    r_globals.na_int,
+    na_rm,
+    out_size,
+    count,
+    v_dimensions,
+    dimensionality,
+    v_out_broadcast_strides
+  );
+}
+
+static r_obj* rray_mean_dbl(
+  r_obj* x,
+  bool na_rm,
+  r_ssize out_size,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_out_broadcast_strides,
+  struct r_lazy error_call
+) {
+  const double* v_x = r_dbl_cbegin(x);
+  const r_ssize x_size = r_length(x);
+  const r_ssize count = rray_reduce_count(x_size, out_size);
+
+  int n_prot = 0;
+
+  r_obj* out = KEEP_N(r_alloc_double(out_size), &n_prot);
+  double* v_out = r_dbl_begin(out);
+
+  r_obj* corrections = KEEP_N(r_alloc_double(out_size), &n_prot);
+  double* v_corrections = r_dbl_begin(corrections);
+
+  for (r_ssize i = 0; i < out_size; ++i) {
+    v_out[i] = 0.0;
+    v_corrections[i] = 0.0;
+  }
+
+  r_ssize* v_counts = NULL;
+
+  if (na_rm) {
+    r_obj* counts = KEEP_N(r_alloc_raw0(out_size * sizeof(r_ssize)), &n_prot);
+    v_counts = (r_ssize*) r_raw_begin(counts);
+  }
+
+  struct rray_run_iterator it;
+  rray_run_iterator_init1(
+    &it,
+    v_dimensions,
+    dimensionality,
+    v_out_broadcast_strides
+  );
+
+  if (na_rm) {
+    for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+      const r_ssize start = rray_run_iterator_start(&it);
+      const r_ssize end = rray_run_iterator_end(&it);
+
+      r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+      const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+      if (out_stride == 0) {
+        double sum = v_out[out_loc];
+        r_ssize count = v_counts[out_loc];
+
+        for (r_ssize i = start; i < end; ++i) {
+          const double x_elt = v_x[i];
+          const bool na = ISNAN(x_elt);
+          sum += na ? 0 : x_elt;
+          count += !na;
+        }
+
+        v_out[out_loc] = sum;
+        v_counts[out_loc] = count;
+      } else {
+        for (r_ssize i = start; i < end; ++i) {
+          const double x_elt = v_x[i];
+          const bool na = ISNAN(x_elt);
+          v_out[out_loc] += na ? 0 : x_elt;
+          v_counts[out_loc] += !na;
+          out_loc += out_stride;
+        }
+      }
+    }
+  } else {
+    for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+      const r_ssize start = rray_run_iterator_start(&it);
+      const r_ssize end = rray_run_iterator_end(&it);
+
+      r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+      const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+      if (out_stride == 0) {
+        double sum = v_out[out_loc];
+
+        for (r_ssize i = start; i < end; ++i) {
+          sum += v_x[i];
+        }
+
+        v_out[out_loc] = sum;
+      } else {
+        for (r_ssize i = start; i < end; ++i) {
+          v_out[out_loc] += v_x[i];
+          out_loc += out_stride;
+        }
+      }
+    }
+  }
+
+  for (r_ssize i = 0; i < out_size; ++i) {
+    v_out[i] /= na_rm ? v_counts[i] : count;
+  }
+
+  rray_run_iterator_reset1(&it);
+
+  if (na_rm) {
+    for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+      const r_ssize start = rray_run_iterator_start(&it);
+      const r_ssize end = rray_run_iterator_end(&it);
+
+      r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+      const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+      if (out_stride == 0) {
+        const double mean = v_out[out_loc];
+        double correction = v_corrections[out_loc];
+
+        for (r_ssize i = start; i < end; ++i) {
+          const double x_elt = v_x[i];
+          correction += ISNAN(x_elt) ? 0 : x_elt - mean;
+        }
+
+        v_corrections[out_loc] = correction;
+      } else {
+        for (r_ssize i = start; i < end; ++i) {
+          const double x_elt = v_x[i];
+          v_corrections[out_loc] += ISNAN(x_elt) ? 0 : x_elt - v_out[out_loc];
+          out_loc += out_stride;
+        }
+      }
+    }
+  } else {
+    for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+      const r_ssize start = rray_run_iterator_start(&it);
+      const r_ssize end = rray_run_iterator_end(&it);
+
+      r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+      const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+      if (out_stride == 0) {
+        const double mean = v_out[out_loc];
+        double correction = v_corrections[out_loc];
+
+        for (r_ssize i = start; i < end; ++i) {
+          correction += v_x[i] - mean;
+        }
+
+        v_corrections[out_loc] = correction;
+      } else {
+        for (r_ssize i = start; i < end; ++i) {
+          v_corrections[out_loc] += v_x[i] - v_out[out_loc];
+          out_loc += out_stride;
+        }
+      }
+    }
+  }
+
+  bool any_infinite = false;
+
+  for (r_ssize i = 0; i < out_size; ++i) {
+    const double mean = v_out[i];
+
+    if (R_FINITE(mean)) {
+      const double correction = v_corrections[i];
+      v_out[i] = R_FINITE(correction)
+        ? mean + correction / (na_rm ? v_counts[i] : count)
+        : mean;
+    } else if (!ISNAN(mean)) {
+      any_infinite = true;
+    }
+  }
+
+  if (any_infinite) {
+    rray_mean_dbl_rescale(
+      v_x,
+      na_rm,
+      v_out,
+      v_corrections,
+      v_counts,
+      out_size,
+      count,
+      v_dimensions,
+      dimensionality,
+      v_out_broadcast_strides
+    );
+  }
+
+  FREE(n_prot);
+  return out;
+}
+
+// Sum into an `int64_t` losslessly
+static r_obj* rray_mean_lgl_or_int(
+  const int* v_x,
+  int na_value,
+  bool na_rm,
+  r_ssize out_size,
+  r_ssize count,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_out_broadcast_strides
+) {
+  const double na_dbl = r_globals.na_dbl;
+
+  int n_prot = 0;
+
+  r_obj* sums = KEEP_N(r_alloc_raw0(out_size * sizeof(int64_t)), &n_prot);
+  int64_t* v_sums = (int64_t*) r_raw_begin(sums);
+
+  r_ssize* v_counts = NULL;
+  bool* v_missings = NULL;
+
+  if (na_rm) {
+    r_obj* counts = KEEP_N(r_alloc_raw0(out_size * sizeof(r_ssize)), &n_prot);
+    v_counts = (r_ssize*) r_raw_begin(counts);
+  } else {
+    r_obj* missings = KEEP_N(r_alloc_raw0(out_size * sizeof(bool)), &n_prot);
+    v_missings = (bool*) r_raw_begin(missings);
+  }
+
+  struct rray_run_iterator it;
+  rray_run_iterator_init1(
+    &it,
+    v_dimensions,
+    dimensionality,
+    v_out_broadcast_strides
+  );
+
+  if (na_rm) {
+    for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+      const r_ssize start = rray_run_iterator_start(&it);
+      const r_ssize end = rray_run_iterator_end(&it);
+
+      r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+      const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+      if (out_stride == 0) {
+        int64_t sum = v_sums[out_loc];
+        r_ssize count = v_counts[out_loc];
+
+        for (r_ssize i = start; i < end; ++i) {
+          const int x_elt = v_x[i];
+          const bool na = x_elt == na_value;
+          sum += na ? 0 : x_elt;
+          count += !na;
+        }
+
+        v_sums[out_loc] = sum;
+        v_counts[out_loc] = count;
+      } else {
+        for (r_ssize i = start; i < end; ++i) {
+          const int x_elt = v_x[i];
+          const bool na = x_elt == na_value;
+          v_sums[out_loc] += na ? 0 : x_elt;
+          v_counts[out_loc] += !na;
+          out_loc += out_stride;
+        }
+      }
+    }
+  } else {
+    for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+      const r_ssize start = rray_run_iterator_start(&it);
+      const r_ssize end = rray_run_iterator_end(&it);
+
+      r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+      const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+      if (out_stride == 0) {
+        int64_t sum = v_sums[out_loc];
+        bool missing = v_missings[out_loc];
+
+        for (r_ssize i = start; i < end; ++i) {
+          const int x_elt = v_x[i];
+          const bool na = x_elt == na_value;
+          sum += na ? 0 : x_elt;
+          missing |= na;
+        }
+
+        v_sums[out_loc] = sum;
+        v_missings[out_loc] = missing;
+      } else {
+        for (r_ssize i = start; i < end; ++i) {
+          const int x_elt = v_x[i];
+          const bool na = x_elt == na_value;
+          v_sums[out_loc] += na ? 0 : x_elt;
+          v_missings[out_loc] |= na;
+          out_loc += out_stride;
+        }
+      }
+    }
+  }
+
+  r_obj* out = KEEP_N(r_alloc_double(out_size), &n_prot);
+  double* v_out = r_dbl_begin(out);
+
+  if (na_rm) {
+    for (r_ssize i = 0; i < out_size; ++i) {
+      v_out[i] = rray_mean_int64(v_sums[i], v_counts[i]);
+    }
+  } else {
+    for (r_ssize i = 0; i < out_size; ++i) {
+      v_out[i] = v_missings[i] ? na_dbl : rray_mean_int64(v_sums[i], count);
+    }
+  }
+
+  FREE(n_prot);
+  return out;
+}
+
+// When an infinity is detected, it's possible it came from overflowing a
+// `double` beyond its max value during the summation, but the mean itself is
+// still well defined. To try and detect those cases, we recompute a scaled sum
+// at the infinity output locations, and if that avoids overflowing to infinity
+// we compute the mean from that. We don't do this in general because division
+// like this is much slower.
+static void rray_mean_dbl_rescale(
+  const double* v_x,
+  bool na_rm,
+  double* v_out,
+  double* v_corrections,
+  const r_ssize* v_counts,
+  r_ssize out_size,
+  r_ssize count,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_out_broadcast_strides
+) {
+  r_obj* means = KEEP(r_alloc_double(out_size));
+  double* v_means = r_dbl_begin(means);
+
+  for (r_ssize i = 0; i < out_size; ++i) {
+    v_means[i] = 0.0;
+    v_corrections[i] = 0.0;
+  }
+
+  struct rray_run_iterator it;
+  rray_run_iterator_init1(
+    &it,
+    v_dimensions,
+    dimensionality,
+    v_out_broadcast_strides
+  );
+
+  for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+    const r_ssize start = rray_run_iterator_start(&it);
+    const r_ssize end = rray_run_iterator_end(&it);
+
+    r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+    const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+    for (r_ssize i = start; i < end; ++i) {
+      const double x_elt = v_x[i];
+      if (isinf(v_out[out_loc]) && !(na_rm && ISNAN(x_elt))) {
+        v_means[out_loc] += x_elt / (na_rm ? v_counts[out_loc] : count);
+      }
+      out_loc += out_stride;
+    }
+  }
+
+  rray_run_iterator_reset1(&it);
+
+  for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+    const r_ssize start = rray_run_iterator_start(&it);
+    const r_ssize end = rray_run_iterator_end(&it);
+
+    r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+    const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+    for (r_ssize i = start; i < end; ++i) {
+      const double x_elt = v_x[i];
+      if (isinf(v_out[out_loc]) && !(na_rm && ISNAN(x_elt))) {
+        v_corrections[out_loc] +=
+          (x_elt - v_means[out_loc]) / (na_rm ? v_counts[out_loc] : count);
+      }
+      out_loc += out_stride;
+    }
+  }
+
+  for (r_ssize i = 0; i < out_size; ++i) {
+    if (isinf(v_out[i])) {
+      const double mean = v_means[i];
+      const double correction = v_corrections[i];
+      v_out[i] =
+        R_FINITE(mean) && R_FINITE(correction) ? mean + correction : mean;
+    }
+  }
+
+  FREE(1);
+}
+
+r_obj* ffi_test_rray_mean_forced_fallback(
+  r_obj* ffi_x,
+  r_obj* ffi_axes,
+  r_obj* ffi_na_rm,
+  r_obj* ffi_frame
+) {
+  struct r_lazy error_call = {.x = ffi_frame, .env = r_null};
+  const bool na_rm = r_arg_as_bool(ffi_na_rm, "na_rm");
+  return rray_reduce(
+    ffi_x,
+    ffi_axes,
+    na_rm,
+    rray_mean_forced_fallback_switch,
+    rray_args.x,
+    error_call
+  );
+}
+
+static rray_reduce_fn rray_mean_forced_fallback_switch(
+  r_obj* x,
+  struct rray_arg* arg,
+  struct r_lazy error_call
+) {
+  if (rray_typeof(x) != RRAY_TYPE_integer) {
+    r_stop_internal("`x` must be an integer array.");
+  }
+
+  return rray_mean_int_forced_fallback;
+}
+
+static r_obj* rray_mean_int_forced_fallback(
+  r_obj* x,
+  bool na_rm,
+  r_ssize out_size,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_out_broadcast_strides,
+  struct r_lazy error_call
+) {
+  const int* v_x = r_int_cbegin(x);
+  const r_ssize x_size = r_length(x);
+  const r_ssize count = rray_reduce_count(x_size, out_size);
+
+  return rray_mean_int_fallback(
+    v_x,
+    na_rm,
+    out_size,
+    count,
+    v_dimensions,
+    dimensionality,
+    v_out_broadcast_strides
+  );
+}
+
+// Fallback method for int when it is a long vector. In that case, summing could
+// possibly overflow `int64_t`, so we perform the sum in our own minimal
+// `int128_t` instead, which is slower but still lossless.
+static r_obj* rray_mean_int_fallback(
+  const int* v_x,
+  bool na_rm,
+  r_ssize out_size,
+  r_ssize count,
+  const int* v_dimensions,
+  int dimensionality,
+  const r_ssize* v_out_broadcast_strides
+) {
+  const int na_int = r_globals.na_int;
+  const double na_dbl = r_globals.na_dbl;
+
+  int n_prot = 0;
+
+  r_obj* sums =
+    KEEP_N(r_alloc_raw0(out_size * sizeof(struct rray_int128)), &n_prot);
+  struct rray_int128* v_sums = (struct rray_int128*) r_raw_begin(sums);
+
+  r_ssize* v_counts = NULL;
+  bool* v_missings = NULL;
+
+  if (na_rm) {
+    r_obj* counts = KEEP_N(r_alloc_raw0(out_size * sizeof(r_ssize)), &n_prot);
+    v_counts = (r_ssize*) r_raw_begin(counts);
+  } else {
+    r_obj* missings = KEEP_N(r_alloc_raw0(out_size * sizeof(bool)), &n_prot);
+    v_missings = (bool*) r_raw_begin(missings);
+  }
+
+  struct rray_run_iterator it;
+  rray_run_iterator_init1(
+    &it,
+    v_dimensions,
+    dimensionality,
+    v_out_broadcast_strides
+  );
+
+  if (na_rm) {
+    for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+      const r_ssize start = rray_run_iterator_start(&it);
+      const r_ssize end = rray_run_iterator_end(&it);
+
+      r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+      const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+      if (out_stride == 0) {
+        struct rray_int128 sum = v_sums[out_loc];
+        r_ssize count = v_counts[out_loc];
+
+        for (r_ssize i = start; i < end; ++i) {
+          const int x_elt = v_x[i];
+          const bool na = x_elt == na_int;
+          sum = rray_int128_add(sum, na ? 0 : x_elt);
+          count += !na;
+        }
+
+        v_sums[out_loc] = sum;
+        v_counts[out_loc] = count;
+      } else {
+        for (r_ssize i = start; i < end; ++i) {
+          const int x_elt = v_x[i];
+          const bool na = x_elt == na_int;
+          v_sums[out_loc] = rray_int128_add(v_sums[out_loc], na ? 0 : x_elt);
+          v_counts[out_loc] += !na;
+          out_loc += out_stride;
+        }
+      }
+    }
+  } else {
+    for (; !rray_run_iterator_done(&it); rray_run_iterator_next1(&it)) {
+      const r_ssize start = rray_run_iterator_start(&it);
+      const r_ssize end = rray_run_iterator_end(&it);
+
+      r_ssize out_loc = rray_run_iterator_loc(&it, 0);
+      const r_ssize out_stride = rray_run_iterator_stride(&it, 0);
+
+      if (out_stride == 0) {
+        struct rray_int128 sum = v_sums[out_loc];
+        bool missing = v_missings[out_loc];
+
+        for (r_ssize i = start; i < end; ++i) {
+          const int x_elt = v_x[i];
+          const bool na = x_elt == na_int;
+          sum = rray_int128_add(sum, na ? 0 : x_elt);
+          missing |= na;
+        }
+
+        v_sums[out_loc] = sum;
+        v_missings[out_loc] = missing;
+      } else {
+        for (r_ssize i = start; i < end; ++i) {
+          const int x_elt = v_x[i];
+          const bool na = x_elt == na_int;
+          v_sums[out_loc] = rray_int128_add(v_sums[out_loc], na ? 0 : x_elt);
+          v_missings[out_loc] |= na;
+          out_loc += out_stride;
+        }
+      }
+    }
+  }
+
+  r_obj* out = KEEP_N(r_alloc_double(out_size), &n_prot);
+  double* v_out = r_dbl_begin(out);
+
+  if (na_rm) {
+    for (r_ssize i = 0; i < out_size; ++i) {
+      v_out[i] = rray_mean_int128(v_sums[i], v_counts[i]);
+    }
+  } else {
+    for (r_ssize i = 0; i < out_size; ++i) {
+      v_out[i] = v_missings[i] ? na_dbl : rray_mean_int128(v_sums[i], count);
+    }
+  }
+
+  FREE(n_prot);
+  return out;
+}
+
+static inline double rray_mean_int64(int64_t sum, r_ssize count) {
+  if (count == 0) {
+    return R_NaN;
+  }
+
+  // Within this range, the cast to `double` is lossless, and the only lossy bit
+  // is the division
+  if (-RRAY_MEAN_INT64_MAX_EXACT <= sum && sum <= RRAY_MEAN_INT64_MAX_EXACT) {
+    return (double) sum / count;
+  }
+
+  // Otherwise we do a lossless integer division and cast its partial mean
+  // result to `double`, and add that to a lossless remainder calculation cast
+  // to `double` and lossily (but much less so!) divided by the `count` to get
+  // the rest of the mean
+  return (double) (sum / count) + (double) (sum % count) / count;
+}
+
+static inline double rray_mean_int128(struct rray_int128 sum, r_ssize count) {
+  // Prefer int64 handler if possible. It handles the 0 `count` case, but more
+  // importantly if the int64 can be represented exactly as a double we get to
+  // use the lossless double conversion path.
+  if (rray_int128_fits_int64(sum)) {
+    return rray_mean_int64(rray_int128_as_int64(sum), count);
+  }
+
+  const struct rray_int128_div_result div = rray_int128_div(sum, count);
+  return (double) div.quotient + (double) div.remainder / count;
+}

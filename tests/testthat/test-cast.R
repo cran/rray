@@ -1,140 +1,207 @@
-context("test-rray-cast")
-
-test_that("to another rray", {
-  x <- as_rray(array(1, dim = c(1, 2)))
-  y <- as_rray(array(1, dim = c(1, 2)))
-
-  z <- vec_cast(x, y)
-  expect_is(z, "vctrs_rray")
-  expect_equal(dim(z), c(1, 2))
+test_that("which pairs of native types convert", {
+  expect_snapshot(native_ptype_matrix(rray_cast, c("from", "to")))
 })
 
-test_that("to base types", {
-  x <- as_rray(array(1, dim = c(1, 2)))
-
-  x_array <- vec_cast(x, array(1, dim = c(1, 2)))
-  expect_is(x_array, "matrix")
-  expect_equal(dim(x_array), c(1, 2))
-
-  x_matrix <- vec_cast(x, matrix(1, 1, 2))
-  expect_is(x_matrix, "matrix")
-  expect_equal(dim(x_matrix), c(1, 2))
-
-  expect_equal(x_array, x_matrix)
-
-  # can cast down to a integer matrix
-  x_int_matrix <- vec_cast(x, matrix(1L, 1, 2))
-  expect_equal(storage.mode(x_int_matrix), "integer")
+test_that("can cast up the numeric tower", {
+  expect_identical(rray_cast(TRUE, integer()), array(1L, 1L))
+  expect_identical(rray_cast(TRUE, double()), array(1, 1L))
+  expect_identical(rray_cast(TRUE, complex()), array(1 + 0i, 1L))
+  expect_identical(rray_cast(1L, double()), array(1, 1L))
+  expect_identical(rray_cast(1L, complex()), array(1 + 0i, 1L))
+  expect_identical(rray_cast(1, complex()), array(1 + 0i, 1L))
 })
 
-test_that("from base types", {
-
-  x <- array(1:4, c(1, 2, 2))
-
-  x_int <- vec_cast(x, rray(integer(), dim = c(0, 2, 2)))
-  expect_is(x_int, "vctrs_rray")
-  expect_equal(dim(x_int), c(1, 2, 2))
-  expect_equal(storage.mode(x_int), "integer")
-
-  x_dbl <- vec_cast(x, rray(double(), dim = c(0, 2, 2)))
-  expect_equal(storage.mode(x_dbl), "double")
-
-  x_lgl <- vec_cast(matrix(1), rray(logical(), dim = c(0, 1)))
-  expect_equal(storage.mode(x_lgl), "logical")
-
+test_that("can cast down the numeric tower", {
+  expect_identical(rray_cast(1L, logical()), array(TRUE, 1L))
+  expect_identical(rray_cast(0, logical()), array(FALSE, 1L))
+  expect_identical(rray_cast(1, integer()), array(1L, 1L))
 })
 
-test_that("names are lost", {
-
-  nms <- list("foo", "bar")
-  x <- rray(1, c(1, 1), dim_names = nms)
-
-  # to another rray - same shape
-  res <- vec_cast(x, rray(1, c(1, 1)))
-  expect_equal(rray_dim_names(res), rray_empty_dim_names(2))
-
-  # to another rray - different shape
-  res <- vec_cast(x, rray(1, c(1, 2)))
-  expect_equal(rray_dim_names(res), rray_empty_dim_names(2))
-
-  # to a base type
-  res <- vec_cast(x, array(1, c(1, 2)))
-  expect_equal(rray_dim_names(res), rray_empty_dim_names(2))
-
-  # from a base type
-  x <- array(1, c(1, 1), dimnames = nms)
-  res <- vec_cast(x, rray(1, c(1, 1)))
-  expect_equal(rray_dim_names(res), rray_empty_dim_names(2))
-
+test_that("missing values are preserved", {
+  expect_identical(rray_cast(NA, integer()), array(NA_integer_, 1L))
+  expect_identical(rray_cast(NA, double()), array(NA_real_, 1L))
+  expect_identical(rray_cast(NA_integer_, logical()), array(NA, 1L))
+  expect_identical(rray_cast(NA_real_, logical()), array(NA, 1L))
+  expect_identical(rray_cast(NA_real_, integer()), array(NA_integer_, 1L))
 })
 
-test_that("can broadcast shape", {
-  x <- as_rray(array(1, dim = c(1, 2)))
-
-  # Broadcast shape only, not size!
-  x_array <- vec_cast(x, array(1, dim = c(2, 2)))
-  expect_is(x_array, "matrix")
-  expect_equal(dim(x_array), c(1, 2))
-
-  x_array2 <- vec_cast(x, array(1, dim = c(2, 2, 2)))
-  expect_is(x_array2, "array")
-  expect_equal(dim(x_array2), c(1, 2, 2))
-
-  x_matrix <- vec_cast(x, matrix(1, 2, 2))
-  expect_is(x_matrix, "matrix")
-  expect_equal(dim(x_matrix), c(1, 2))
-
-  expect_equal(x_array, x_matrix)
-
-  # can broadcast shape with rray's
-  y <- as_rray(array(1, dim = c(2, 2, 3)))
-  expect_equal(dim(vec_cast(x, y)), c(1, 2, 3))
+test_that("`NaN` matches base R", {
+  expect_identical(rray_cast(NaN, integer()), array(NA_integer_, 1L))
+  expect_identical(rray_cast(NaN, logical()), array(NA, 1L))
 })
 
-test_that("casting updates inner types", {
-  x_int <- rray(1L)
-
-  expect_equal(
-    vec_cast(x_int, double()),
-    new_array(1)
+test_that("casting missing to complex uses a `0` for `imaginary`, same as base R", {
+  skip_if_not(
+    getRversion() >= "4.4.0",
+    "`as.complex()` used to use `NA` in the `Im()` slot"
   )
 
-  expect_equal(
-    vec_cast(x_int, matrix(1)),
-    matrix(1)
+  expect_identical(
+    rray_cast(NA, complex()),
+    array(complex(real = NA_real_, imaginary = 0), 1L)
+  )
+  expect_identical(
+    rray_cast(NA, complex()),
+    array(as.complex(NA), 1L)
   )
 
-  expect_equal(
-    vec_cast(x_int, matrix(FALSE)),
-    matrix(TRUE)
+  expect_identical(
+    rray_cast(NA_integer_, complex()),
+    array(complex(real = NA_real_, imaginary = 0), 1L)
+  )
+  expect_identical(
+    rray_cast(NA_integer_, complex()),
+    array(as.complex(NA_integer_), 1L)
+  )
+
+  expect_identical(
+    rray_cast(NA_real_, complex()),
+    array(complex(real = NA_real_, imaginary = 0), 1L)
+  )
+  expect_identical(
+    rray_cast(NA_real_, complex()),
+    array(as.complex(NA_real_), 1L)
+  )
+
+  expect_identical(
+    rray_cast(NaN, complex()),
+    array(complex(real = NaN, imaginary = 0), 1L)
+  )
+  expect_identical(
+    rray_cast(NaN, complex()),
+    array(as.complex(NaN), 1L)
   )
 })
 
-test_that("using base coercing functions", {
-  x <- as_rray(array(1, dim = c(1, 2)))
-
-  x_dbl <- as.double(x)
-  expect_is(x_dbl, "numeric")
-  expect_equal(dim(x_dbl), NULL)
-
-  x_int <- as.integer(x)
-  expect_is(x_int, "integer")
-  expect_equal(dim(x_int), NULL)
-
-  x_lgl <- as.logical(x)
-  expect_is(x_lgl, "logical")
-  expect_equal(dim(x_lgl), NULL)
-
-  # names are not kept
-  x_nm <- rray_set_row_names(x, "foo")
-  expect_equal(rray_dim_names(as.double(x_nm)), rray_empty_dim_names(1))
+test_that("the integer boundaries cast", {
+  max <- .Machine$integer.max
+  expect_identical(rray_cast(as.double(max), integer()), array(max, 1L))
+  expect_identical(rray_cast(as.double(-max), integer()), array(-max, 1L))
 })
 
-test_that("from NULL (handled by vctrs)", {
-  expect_equal(vec_cast(NULL, rray(1)), NULL)
+test_that("casting to the same type only normalizes the input", {
+  x <- array(1:4, c(2L, 2L))
+  expect_identical(rray_cast(x, integer()), x)
+  expect_identical(
+    rray_cast(letters[1:2], character()),
+    array(letters[1:2], 2L)
+  )
+  expect_identical(rray_cast(as.raw(1:2), raw()), array(as.raw(1:2), 2L))
+  expect_identical(rray_cast(list(1, 2), list()), array(list(1, 2), 2L))
 })
 
-test_that("from unknown types", {
-  expect_error(vec_cast("chr", rray(1)), class = "vctrs_error_incompatible_cast")
-  expect_error(vec_cast(rray(1), "chr"), class = "vctrs_error_incompatible_cast")
+test_that("`to` only supplies a type, never dimensions", {
+  out <- rray_cast(array(1:6, c(2L, 3L)), array(1, c(4L, 5L)))
+  expect_identical(rray_dimensions(out), c(2L, 3L))
+})
+
+test_that("a bare vector becomes a one dimensional array", {
+  expect_identical(
+    rray_cast(c(a = 1L, b = 2L), double()),
+    array(c(1, 2), 2L, dimnames = list(c("a", "b")))
+  )
+})
+
+test_that("a bare vector drops other attributes", {
+  x <- structure(c(a = 1L, b = 2L), foo = 1)
+  expect_identical(
+    rray_cast(x, integer()),
+    array(1:2, 2L, dimnames = list(c("a", "b")))
+  )
+})
+
+test_that("dimensions and names are kept", {
+  x <- array(1:6, c(1L, 2L, 3L), dimnames = list("a", c("b", "c"), NULL))
+  out <- rray_cast(x, double())
+  expect_identical(rray_dimensions(out), c(1L, 2L, 3L))
+  expect_identical(rray_names(out), list("a", c("b", "c"), NULL))
+})
+
+test_that("titles are kept", {
+  x <- array(
+    1:24,
+    c(2L, 3L, 4L),
+    dimnames = list(A = c("a", "b"), B = NULL, C = NULL)
+  )
+  y <- array(1:24, c(2L, 3L, 4L), dimnames = list(A = NULL, B = NULL, C = NULL))
+
+  expect_identical(dimnames(rray_cast(x, double())), dimnames(x))
+  expect_identical(dimnames(rray_cast(y, double())), dimnames(y))
+})
+
+test_that("zero size arrays cast", {
+  expect_identical(
+    rray_cast(array(integer(), c(0L, 2L)), double()),
+    array(double(), c(0L, 2L))
+  )
+  expect_identical(
+    rray_cast(array(integer(), c(0L, 0L)), complex()),
+    array(complex(), c(0L, 0L))
+  )
+})
+
+test_that("errors on a lossy cast, reporting the location", {
+  expect_snapshot(rray_cast(c(1, 2.5), integer()), error = TRUE)
+  expect_snapshot(rray_cast(c(0, 1, 2), logical()), error = TRUE)
+  expect_snapshot(rray_cast(c(1L, 5L), logical()), error = TRUE)
+})
+
+test_that("errors when a double is out of integer range", {
+  expect_snapshot(rray_cast(2^31, integer()), error = TRUE)
+  expect_snapshot(rray_cast(-2^31, integer()), error = TRUE)
+})
+
+test_that("errors on types that don't convert", {
+  expect_snapshot(rray_cast(letters, integer()), error = TRUE)
+  expect_snapshot(rray_cast(as.raw(1), integer()), error = TRUE)
+  expect_snapshot(rray_cast(list(1), double()), error = TRUE)
+  expect_snapshot(rray_cast(1L, character()), error = TRUE)
+})
+
+test_that("complex is a one way trip", {
+  expect_snapshot(rray_cast(1i, double()), error = TRUE)
+  expect_snapshot(rray_cast(1i, integer()), error = TRUE)
+  expect_snapshot(rray_cast(1i, logical()), error = TRUE)
+})
+
+test_that("`x_arg` defaults to the caller's expression", {
+  f <- function(myinput) rray_cast(myinput, integer())
+  expect_snapshot(f(1.5), error = TRUE)
+})
+
+test_that("`x_arg` can be overridden or emptied", {
+  expect_snapshot(rray_cast(1.5, integer(), x_arg = "vals"), error = TRUE)
+  expect_snapshot(rray_cast(1.5, integer(), x_arg = ""), error = TRUE)
+  expect_snapshot(rray_cast("a", integer(), x_arg = ""), error = TRUE)
+})
+
+test_that("`to_arg` is empty by default, so `to` is reported as `Input`", {
+  expect_snapshot(rray_cast(1, sum), error = TRUE)
+  expect_snapshot(rray_cast(1, sum, to_arg = "myto"), error = TRUE)
+})
+
+test_that("`call` blames the caller", {
+  f <- function(x) rray_cast(x, integer())
+  expect_snapshot(f(1.5), error = TRUE)
+})
+
+test_that("`...` must be empty", {
+  expect_snapshot(rray_cast(1, integer(), 5), error = TRUE)
+})
+
+test_that("errors on non-array input", {
+  expect_snapshot(rray_cast(NULL, integer()), error = TRUE)
+  expect_snapshot(rray_cast(1L, NULL), error = TRUE)
+})
+
+test_that("`x` is checked before `to`", {
+  x <- NULL
+  to <- NULL
+  expect_snapshot(rray_cast(x, to), error = TRUE)
+})
+
+test_that("errors on classed input", {
+  x <- structure(1, class = "foo")
+  expect_snapshot(rray_cast(x, integer()), error = TRUE)
+  expect_snapshot(rray_cast(1, x), error = TRUE)
 })

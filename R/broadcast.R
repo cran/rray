@@ -1,82 +1,58 @@
-#' Broadcast to a new dimension
+#' Broadcast an array to new dimensions
 #'
-#' `rray_broadcast()` will _broadcast_ the dimensions of the current
-#' object to a new dimension.
+#' @description
+#' `rray_broadcast()` broadcasts an array to a new set of dimensions using
+#' tidyverse recycling rules. Each dimension of `x` must either match the
+#' corresponding target dimension or be 1, in which case it is repeated to fill
+#' the target.
 #'
-#' Broadcasting works by _recycling dimensions_ and _repeating values_ in
-#' those dimensions to match the new dimension.
+#' Dimensionality can be expanded by supplying `dimensions` with greater
+#' dimensionality than `x` has. For example, a 2x3 array can be broadcast to a
+#' 2x3x4 array.
 #'
-#' Here's an example. Assume you have a 1x3 matrix that you want to broadcast
-#' to a dimension of 2x3. Since the 1st dimensions are different, and one of them
-#' is 1, the 1 row of the 1x3 matrix is repeated to become a 2x3 matrix. For
-#' the second dimension, both are already 3 so nothing is done.
+#' @param x An array.
+#' @param dimensions An integer vector of target dimensions.
 #'
-#' ```
-#' (1, 3)
-#' (2, 3)
-#' ------
-#' (2, 3)
-#' ```
-#'
-#' As an example that _doesn't_ broadcast, here is an attempt to make a
-#' 2x1x4 matrix broadcast to a 2x3x5 matrix (In the R world, 2x3x4 means
-#' a 2 row, 3 column, and 4 "deep" array). The first 2 dimensions are fine,
-#' but for the third dimension, 4 and 5 are not "recyclable" and are therefore
-#' incompatible.
-#'
-#' ```
-#' (2, 1, 4)
-#' (2, 3, 5)
-#' ---------
-#' (2, 3, X)
-#' ```
-#'
-#' You can broadcast to higher dimensions too. If you go from a 5x2 to a
-#' 5x2x3 array, then the 5x2 matrix implicitly gets a 1 appended as another
-#' dimension (i.e. 5x2x1)
-#'
-#'
-#' ```
-#' (5, 2,  ) <- implicit 1 is recycled
-#' (5, 2, 3)
-#' ---------
-#' (5, 2, 3)
-#' ```
-#'
-#' Broadcasting is an important concept in rray, as it is the engine behind
-#' the different structure for arithmetic operations.
-#'
-#' @param x The object to broadcast.
-#' @param dim An integer vector. The dimension to broadcast to.
-#'
-#' @return
-#'
-#' `x` broadcast to the new dimensions.
-#'
-#' @examples
-#'
-#' # From 5x1 ...
-#' x <- rray(1:5)
-#'
-#' # ...to 5x2
-#' rray_broadcast(x, c(5, 2))
-#'
-#' # Internally, rray() uses broadcasting
-#' # for convenience so you could have also
-#' # done this with:
-#' rray(1:5, dim = c(5, 2))
-#'
-#' # Moar dimensions
-#' rray_broadcast(x, c(5, 2, 3))
-#'
-#' # You cannot broadcast down in dimensions
-#' try(rray_broadcast(x, 5))
+#' @returns
+#' An array with dimensions of `dimensions`.
 #'
 #' @export
-rray_broadcast <- function(x, dim) {
-  dim <- vec_cast(dim, integer())
+#' @examples
+#' # Broadcast a vector to a matrix
+#' rray_broadcast(1:3, c(3L, 2L))
+#'
+#' # Broadcast a row to fill a matrix
+#' rray_broadcast(array(1:2, c(1L, 2L)), c(3L, 2L))
+#'
+#' # Add a new dimension
+#' rray_broadcast(array(1:6, c(2L, 3L)), c(2L, 3L, 4L))
+rray_broadcast <- function(x, dimensions) {
+  .Call(ffi_rray_broadcast, x, dimensions, environment())
+}
 
-  res <- rray__broadcast(x, dim)
-
-  vec_cast_container(res, x)
+#' Broadcast arrays to common dimensions
+#'
+#' @description
+#' `rray_broadcast_common()` broadcasts every array to the common dimensions
+#' found by [rray_dimensions_common()].
+#'
+#' @param ... Arrays to broadcast.
+#'
+#' @param .dimensions If provided, an integer vector of dimensions to
+#'   broadcast to, rather than computing common dimensions from `...`.
+#'
+#' @returns
+#' A list of arrays, all with the common dimensions.
+#'
+#' @export
+#' @examples
+#' rray_broadcast_common(array(1:3, c(3L, 1L)), array(1:2, c(1L, 2L)))
+#'
+#' # Names of `...` are kept
+#' rray_broadcast_common(x = 1:3, y = 1L)
+#'
+#' # `.dimensions` overrides the common dimensions
+#' rray_broadcast_common(1:3, .dimensions = c(3L, 2L))
+rray_broadcast_common <- function(..., .dimensions = NULL) {
+  .Call(ffi_rray_broadcast_common, list2(...), .dimensions, environment())
 }

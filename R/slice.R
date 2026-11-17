@@ -1,66 +1,164 @@
-#' Get or set a slice of an array
+#' Slice an array
 #'
-#' `rray_slice()` is a shortcut wrapper around [rray_subset()] that is useful
-#' for easily subsetting along a single axis.
+#' @description
+#' `rray_slice()` selects positions along each axis of `x`. The result always
+#' has the same dimensionality as `x`.
 #'
-#' @param x A vector, matrix, array or rray.
+#' `rray_slice_axis()` is `rray_slice()` restricted to a single axis, which can
+#' be more ergonomic to write. `rray_slice_rows()` and `rray_slice_columns()`
+#' are shortcuts for `axis = 1` and `axis = 2`.
 #'
-#' @param i Indices to extract along a single axis.
-#' - Integer indices extract specific elements of the `axis` dimension.
-#' - Logical indices must be length 1, or the length of the `axis` dimension.
-#' - Character indices are only allowed if `x` has names for the `axis` dimension.
-#' - `NULL` is treated as `0`.
-#'
-#' @param axis An integer. The axis to subset along.
-#'
-#' @param value A value to be assigned to the location at
-#' `rray_slice(x, i, axis)`. It will be cast to the type and dimension
-#' of the slice of `x`.
+#' The `_assign` versions replace the selected positions with `value` and
+#' return a modified copy of `x`.
 #'
 #' @details
+#' `NA` in a subscript gives missing values in the result. For raw arrays the
+#' missing value is `as.raw(0)`, and for list arrays it is `NULL`. If the axis
+#' has names, the name of a missing value is `""`. For assignment, `NA` in a
+#' subscript leaves `x` unchanged at that position but uses one element of
+#' `value`.
 #'
-#' `rray_slice()` does exactly the same thing as [rray_subset()], and is
-#' mainly helpful for higher dimensional objects, when you need to subset
-#' along, for example, only the 4th dimension.
+#' Unlike `[`, an empty argument does not select a whole axis. Use `TRUE`
+#' instead, so that every axis is provided explicitly:
 #'
-#' @return
+#' ```r
+#' x <- array(1:24, c(2L, 3L, 4L))
 #'
-#' `x` with the `i` elements extracted from the `axis`.
+#' # Base R
+#' x[1, , , drop = FALSE]
 #'
-#' @examples
-#' x <- rray(1:16, c(2, 2, 2, 2))
+#' # rray
+#' rray_slice(x, 1, TRUE, TRUE)
 #'
-#' # Selecting the first column
-#' rray_slice(x, i = 1, axis = 2)
+#' # Or, more simply
+#' rray_slice_axis(x, 1, axis = 1)
+#' rray_slice_rows(x, 1)
+#' ```
 #'
-#' # rray_slice() is particularly useful for
-#' # subsetting higher dimensions because you don't
-#' # have to worry about the commas
-#' rray_slice(x, i = 2, axis = 4)
+#' @param x An array.
 #'
-#' # Compare the above with the equivalent using `[`
-#' x[, , , 2]
+#' @param ... One unnamed subscript for each axis of `x`, in axis order. Each
+#'   subscript is one of:
 #'
-#' # `i` can be a character vector if `x` has names along `axis`
-#' x <- rray_set_axis_names(x, axis = 4, c("foo", "bar"))
-#' rray_slice(x, "bar", axis = 4)
+#'   - `TRUE`, to select the whole axis.
 #'
-#' # The assignment variation can be useful
-#' # for assigning to higher dimensional elements
-#' rray_slice(x, 1, 3) <- matrix(c(99, 100), nrow = 1)
+#'   - A logical vector the size of the axis. `TRUE` selects a position.
 #'
-#' @family rray subsetters
+#'   - An integer or double vector of locations. Negative values drop
+#'     positions, zero is ignored, and duplicates repeat positions.
+#'
+#'   - A character vector of names, matched against the names of the axis. The
+#'     first match is used when names are duplicated.
+#'
+#'   - `NULL`, to select nothing.
+#'
+#'   For `rray_slice_axis()` and `rray_slice_assign_axis()`, these dots must be
+#'   empty.
+#'
+#' @param i A subscript for the selected axis. It takes any of the forms
+#'   allowed in `...`.
+#'
+#' @param axis The axis to slice along, given
+#'   [by position or by title][faq-axes].
+#'
+#' @param value An array to assign to the selected positions. It is cast to
+#'   the type of `x`, then broadcast to the dimensions of the selection.
+#'
+#' @returns
+#' - `rray_slice()`, `rray_slice_axis()`, `rray_slice_rows()`, and
+#'   `rray_slice_columns()` return an array with the same type and
+#'   dimensionality as `x`. The dimension of each axis is the number of
+#'   positions selected on it. The names of each axis are selected along with
+#'   the values. The titles of `x` are kept.
+#'
+#' - The `_assign` versions return `x` with the selected positions replaced.
+#'   The type, dimensions, and names of `x` are kept.
+#'
 #' @export
-rray_slice <- function(x, i, axis) {
-  axis <- vec_cast(axis, integer())
-  validate_axis(axis, x)
-
-  indexer <- front_pad(i, axis)
-
-  rray_subset(x, !!!indexer)
+#' @examples
+#' x <- array(1:24, c(2L, 3L, 4L))
+#'
+#' # The first row
+#' rray_slice(x, 1, TRUE, TRUE)
+#'
+#' # Reorder and repeat positions
+#' rray_slice(x, c(2, 1, 2), 1, 4)
+#'
+#' # Drop positions with negative locations
+#' rray_slice(x, TRUE, -2, -(1:2))
+#'
+#' # Select by name
+#' y <- array(1:6, c(2L, 3L), dimnames = list(c("a", "b"), c("c", "d", "e")))
+#' rray_slice(y, "b", c("e", "c"))
+#'
+#' # Subscripts can be spliced into `...`
+#' subscripts <- rep(list(TRUE), rray_dimensionality(x))
+#' subscripts[[3]] <- c(4, 1)
+#' rray_slice(x, !!!subscripts)
+#'
+#' # Slice a single axis
+#' rray_slice_axis(x, c(4, 1), axis = 3)
+#' rray_slice_rows(y, c("b", "a"))
+#' rray_slice_columns(x, -2)
+#'
+#' # Slice a single axis, by title
+#' z <- rray_set_titles(y, c("row", "col"))
+#' rray_slice_axis(z, c("e", "c"), axis = "col")
+#'
+#' # Assign one value to every first row
+#' rray_slice_assign(x, 1, TRUE, TRUE, value = 0L)
+#' rray_slice_assign_rows(x, 1, 0L)
+#'
+#' # Or broadcast `value` to the dimensions of the selection
+#' value <- array(c(100L, 200L), c(1L, 2L))
+#' rray_slice_assign(x, TRUE, c(1, 3), 1, value = value)
+#'
+#' value <- array(c(100L, 200L), c(2L, 1L))
+#' rray_slice_assign_axis(x, 3, axis = 2, value = value)
+rray_slice <- function(x, ...) {
+  .Call(ffi_rray_slice, x, list2(...), environment())
 }
 
-front_pad <- function(i, axis) {
-  padding <- rep(list(missing_arg()), times = axis - 1L)
-  c(padding, list(i))
+#' @rdname rray_slice
+#' @export
+rray_slice_axis <- function(x, i, ..., axis) {
+  check_dots_empty0(...)
+  .Call(ffi_rray_slice_axis, x, i, axis, environment())
+}
+
+#' @rdname rray_slice
+#' @export
+rray_slice_rows <- function(x, i) {
+  .Call(ffi_rray_slice_rows, x, i, environment())
+}
+
+#' @rdname rray_slice
+#' @export
+rray_slice_columns <- function(x, i) {
+  .Call(ffi_rray_slice_columns, x, i, environment())
+}
+
+#' @rdname rray_slice
+#' @export
+rray_slice_assign <- function(x, ..., value) {
+  .Call(ffi_rray_slice_assign, x, list2(...), value, environment())
+}
+
+#' @rdname rray_slice
+#' @export
+rray_slice_assign_axis <- function(x, i, ..., axis, value) {
+  check_dots_empty0(...)
+  .Call(ffi_rray_slice_assign_axis, x, i, axis, value, environment())
+}
+
+#' @rdname rray_slice
+#' @export
+rray_slice_assign_rows <- function(x, i, value) {
+  .Call(ffi_rray_slice_assign_rows, x, i, value, environment())
+}
+
+#' @rdname rray_slice
+#' @export
+rray_slice_assign_columns <- function(x, i, value) {
+  .Call(ffi_rray_slice_assign_columns, x, i, value, environment())
 }

@@ -1,0 +1,53 @@
+#' Unstack an array
+#'
+#' @description
+#' `rray_unstack()` splits an array along `axis` and then removes that `axis`
+#' from each of the resulting arrays. The result is a list of arrays that have
+#' a dimensionality 1 less than `x` itself.
+#'
+#' Using [rray_stack()] along the same `axis` reconstructs `x`.
+#'
+#' @details
+#' Names along `axis` become the names of the returned list. Names on the
+#' surviving axes are carried over to their new locations, as are their titles.
+#'
+#' Because the dimensionality is reduced by 1, `x` must have a dimensionality
+#' of at least 2 to begin with.
+#'
+#' @inheritParams rlang::args_dots_empty
+#'
+#' @param x An array.
+#'
+#' @param axis The axis to unstack along, given
+#'   [by position or by title][faq-axes].
+#'
+#' @returns
+#' A list of arrays with the same dimensions as `x`, except that `axis` has
+#' been removed.
+#'
+#' @seealso [rray_stack()]
+#'
+#' @export
+#' @examples
+#' x <- array(1:6, c(2, 3))
+#'
+#' # One array per row
+#' rray_unstack(x, axis = 1)
+#'
+#' # One array per column
+#' rray_unstack(x, axis = 2)
+#'
+#' # One array per column, by title
+#' z <- rray_set_titles(x, c("row", "col"))
+#' rray_unstack(z, axis = "col")
+#'
+#' # Names along the axis become list names
+#' y <- array(1:4, c(2, 2), dimnames = list(c("a", "b"), c("x", "y")))
+#' rray_unstack(y, axis = 2)
+#'
+#' # Unstacking and stacking along the same axis are inverses
+#' rray_stack(!!!rray_unstack(x, axis = 2), .axis = 2)
+rray_unstack <- function(x, ..., axis) {
+  check_dots_empty0(...)
+  .Call(ffi_rray_unstack, x, axis, environment())
+}
